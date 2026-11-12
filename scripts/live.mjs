@@ -132,14 +132,16 @@ async function tab() {
     if (!windowed) {
       const session = await browser.newBrowserCDPSession();
       await session.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: liveSession ? downloadsDir : filesDir, eventsEnabled: true }).catch(() => {});
-      // the browser names each file by a random id; give it back its own name when it is complete
+      // the browser names each file by a random id; when it is complete, name it as the step asked
+      // (noted when it began: the step may be over by the time it ends), or else by its own name
       const names = new Map();
-      session.on('Browser.downloadWillBegin', (event) => names.set(event.guid, event.suggestedFilename));
+      session.on('Browser.downloadWillBegin', (event) => names.set(event.guid, { name: event.suggestedFilename, as: wanted?.as }));
       session.on('Browser.downloadProgress', (event) => {
         if (event.state !== 'completed' || !names.has(event.guid)) return;
-        const name = names.get(event.guid);
+        const { name, as } = names.get(event.guid);
+        names.delete(event.guid);
         const folder = liveSession ? downloadsDir : filesDir;
-        const file = join(folder, name);
+        const file = join(folder, as ? as + extname(name) : name);
         try {
           renameSync(join(folder, event.guid), file);
         } catch {
@@ -147,7 +149,7 @@ async function tab() {
         }
         lastDownload = { name, file, at: Date.now() };
         kept.set(name, file);
-        if (wanted?.as) kept.set(wanted.as, file);
+        if (as) kept.set(as, file);
       });
     }
   }
@@ -190,7 +192,8 @@ let lastDownload = null;
 async function keepDownload(download) {
   const name = wanted?.as ? wanted.as + extname(download.suggestedFilename()) : download.suggestedFilename();
   const file = join(wanted?.dir ?? downloadsDir, name);
-  await download.saveAs(file).catch(() => {});
+  // in a windowless browser the browser itself writes the file (see tab()) and this fails; that path keeps it
+  if (!(await download.saveAs(file).then(() => true, () => false))) return;
   lastDownload = { name: download.suggestedFilename(), file, at: Date.now() };
   if (wanted?.as) kept.set(wanted.as, file);
   kept.set(download.suggestedFilename(), file);
