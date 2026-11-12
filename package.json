@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "new": "node scripts/new.mjs"
+    "new": "node scripts/new.mjs",
+    "make": "node scripts/make.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.2",
@@ -15,6 +17,8 @@
     "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
+    "@types/node": "^26.6.6",
+    "docx": "^9.15.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.7"
   },

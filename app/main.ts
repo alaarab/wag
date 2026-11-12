@@ -1,11 +1,16 @@
 // Dev app: plays decks/<name>.ts at /?deck=<name>, and lists every deck at /.
 import { mount, type Deck } from 'wag';
 
-const loaders = import.meta.glob<{ default: Deck }>('../decks/*.ts');
-const names = Object.keys(loaders)
-  .map((path) => path.slice(path.lastIndexOf('/') + 1, -'.ts'.length))
-  .sort();
-const load = (name: string) => loaders[`../decks/${name}.ts`]();
+import outside from 'virtual:wag-decks';
+
+const inside = import.meta.glob<{ default: Deck }>('../decks/*.ts');
+// decks from the WAG_DECKS folder are listed with the repo's own, and win when a name is in both
+const loaders: Record<string, () => Promise<{ default: Deck }>> = {
+  ...Object.fromEntries(Object.entries(inside).map(([path, loader]) => [path.slice(path.lastIndexOf('/') + 1, -'.ts'.length), loader])),
+  ...outside,
+};
+const names = Object.keys(loaders).sort();
+const load = (name: string) => loaders[name]();
 
 const app = document.getElementById('app')!;
 const wanted = new URLSearchParams(location.search).get('deck');
@@ -59,7 +64,7 @@ function list(note?: string) {
   });
   page(
     el('h1', 'font-size:56px;margin:0 0 4px;font-weight:800', 'wag'),
-    el('p', 'margin:0 0 28px;color:#94a3b8', note ?? `${names.length} deck${names.length === 1 ? '' : 's'} in decks/`),
+    el('p', 'margin:0 0 28px;color:#94a3b8', note ?? `${names.length} deck${names.length === 1 ? '' : 's'}`),
     ...rows,
     el('p', 'margin:28px 0 0;color:#94a3b8;font-size:15px', 'New deck: npm run new <name>')
   );
@@ -72,7 +77,7 @@ if (!wanted) {
 } else {
   try {
     const module = await load(wanted);
-    document.title = `${wanted} · wag`;
+    document.title = `${module.default.title ?? wanted} · wag`;
     mount(module.default, app);
   } catch (error) {
     // deck files are code, so a typo should say what is wrong instead of leaving a blank page

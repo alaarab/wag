@@ -115,6 +115,8 @@ export interface ElementOptions extends StateProps {
   valign?: 'top' | 'middle' | 'bottom';
   stroke?: string;
   strokeWidth?: number;
+  /** a colour laid over the rest of the slide, outside this element, to pick it out. It fades with the element. */
+  shade?: string;
   fit?: 'cover' | 'contain';
   /** video: start again when it ends */
   repeat?: boolean;
@@ -164,6 +166,7 @@ export interface Element {
   valign: 'top' | 'middle' | 'bottom';
   stroke?: string;
   strokeWidth: number;
+  shade?: string;
   fit: 'cover' | 'contain';
   hover: string[];
   press: string[];
@@ -177,9 +180,38 @@ export interface Element {
 
 export type States = Record<string, Record<string, StateProps>>;
 
+/** A file a slide offers its viewer. `href` is a path under `public/`, or any URL. */
+export interface Download {
+  label: string;
+  href: string;
+}
+
+/**
+ * A Word document about one slide, written by `npm run make`: the slide's title, an opening
+ * paragraph, a picture and a list of points. The player links it from the slide's downloads.
+ */
+export interface Handout {
+  intro?: string;
+  /** a picture under `public/`, such as the screenshot the slide shows */
+  image?: string;
+  points?: { label?: string; text: string }[];
+}
+
 export interface SlideOptions {
   /** lets buttons and links route here: `click: { go: 'name' }`, or #name in the address bar */
   name?: string;
+  /** shown in the player's bar, and the heading of the slide's handout */
+  title?: string;
+  /**
+   * What is said, as plain sentences. The first line is spoken when the slide arrives and each
+   * later line after the matching step. `npm run make` turns the lines into audio files; without
+   * them the browser's own voice reads the lines.
+   */
+  narration?: string | string[];
+  /** files offered with this slide */
+  downloads?: Download[];
+  /** offer a Word handout: `true` builds it from the title and the narration */
+  handout?: boolean | Handout;
   /** skipped by the arrow keys, so only routing reaches it */
   hidden?: boolean;
   bg?: string;
@@ -196,6 +228,10 @@ export interface SlideOptions {
 
 export interface Slide {
   name?: string;
+  title?: string;
+  narration: string[];
+  downloads: Download[];
+  handout?: Handout;
   hidden: boolean;
   bg?: string;
   elements: Element[];
@@ -209,6 +245,20 @@ export interface Slide {
 }
 
 export interface DeckOptions {
+  /** shown in the player's bar and on the deck's handouts */
+  title?: string;
+  /**
+   * Where the files `npm run make` writes for this deck are served from, such as '/my-deck'
+   * for `public/my-deck/`. Narration audio and handouts need it.
+   */
+  assets?: string;
+  /** move on by itself when a slide's narration ends. The viewer can switch it off. */
+  auto?: boolean;
+  /**
+   * How to say what a voice would get wrong: written form to spoken form, such as
+   * `{ 'Q&A': 'Q and A,' }`. It changes what is heard, never what is shown.
+   */
+  pronounce?: Record<string, string>;
   width?: number;
   height?: number;
   bg?: string;
@@ -221,6 +271,10 @@ export interface DeckOptions {
 }
 
 export interface Deck {
+  title?: string;
+  assets?: string;
+  auto: boolean;
+  pronounce: Record<string, string>;
   width: number;
   height: number;
   bg: string;
@@ -270,6 +324,7 @@ function draft(kind: Kind, o: ElementOptions, defaults: Partial<Animatable>, ext
     valign: o.valign ?? 'middle',
     stroke: o.stroke,
     strokeWidth: o.strokeWidth ?? (kind === 'path' ? 6 : o.stroke ? 2 : 0),
+    shade: o.shade,
     fit: o.fit ?? 'cover',
     placeholder: o.placeholder,
     inputType: o.inputType ?? 'text',
@@ -368,8 +423,15 @@ export function slide(options: SlideOptions, drafts: Draft[]): Slide {
     if (!states[name]) throw new Error(`wag: step "${name}" is not one of the slide's states`);
   }
 
+  const narration = typeof options.narration === 'string' ? [options.narration] : (options.narration ?? []);
+  const handout = options.handout === true ? { intro: narration[0], points: narration.slice(1).map((line) => ({ text: line })) } : options.handout || undefined;
+
   return {
     name: options.name,
+    title: options.title,
+    narration,
+    downloads: options.downloads ?? [],
+    handout,
     hidden: options.hidden ?? false,
     bg: options.bg,
     elements,
@@ -397,7 +459,12 @@ export function deck(options: DeckOptions, slides: Slide[]): Deck {
       if (missing) throw new Error(`wag: element "${el.id}" goes to slide "${to}", which does not exist`);
     }
   }
+  if (!options.assets && slides.some((s) => s.handout)) throw new Error('wag: a slide has a handout, so the deck needs `assets` to say where it is served from');
   return {
+    title: options.title,
+    assets: options.assets?.replace(/\/$/, ''),
+    auto: options.auto ?? false,
+    pronounce: options.pronounce ?? {},
     width: options.width ?? 1280,
     height: options.height ?? 720,
     bg: options.bg ?? '#0f172a',
@@ -418,4 +485,34 @@ export function resolve(s: Slide, el: Element, active: ReadonlySet<string>): Ani
     if (overrides) out = { ...out, ...overrides };
   }
   return out;
+}
+
+/** The file name of a slide's handout, without its folder: its name, or its number counting from 1. */
+export const handoutFile = (deck: Deck, s: Slide) => `${s.name ?? `slide-${deck.slides.indexOf(s) + 1}`}.docx`;
+
+/** Where the files written by `npm run make` are served from for this deck. */
+export const assetUrl = (deck: Deck, file: string) => `${deck.assets ?? ''}/${file}`;
+
+/** A narration line as a voice should be given it. */
+export function spoken(deck: Deck, line: string): string {
+  let out = line;
+  for (const [written, said] of Object.entries(deck.pronounce)) out = out.replaceAll(written, said);
+  return out;
+}
+
+/**
+ * A short, stable name for one narration line. The audio file for a line is named after it, so
+ * changing what is said makes a new file and leaves every other line's audio alone.
+ */
+export function lineKey(line: string): string {
+  let a = 0xdeadbeef;
+  let b = 0x41c6ce57;
+  for (let i = 0; i < line.length; i++) {
+    const code = line.charCodeAt(i);
+    a = Math.imul(a ^ code, 2654435761);
+    b = Math.imul(b ^ code, 1597334677);
+  }
+  a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909);
+  b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909);
+  return (b >>> 0).toString(16).padStart(8, '0') + (a >>> 0).toString(16).padStart(8, '0');
 }

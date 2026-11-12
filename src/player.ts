@@ -3,7 +3,7 @@
 // work out the new target layout and spring each value towards it. Interrupted springs keep
 // their velocity, which is what makes hover feel alive.
 import { animate, createScopedAnimate, frame, mix, motionValue, type MotionValue } from 'motion';
-import { resolve, type Animatable, type Answers, type Deck, type Element, type MotionConfig, type Slide } from './scene';
+import { assetUrl, handoutFile, lineKey, resolve, spoken, type Animatable, type Answers, type Deck, type Download, type Element, type MotionConfig, type Slide } from './scene';
 
 const KEYS = ['x', 'y', 'w', 'h', 'rotate', 'scale', 'opacity', 'radius', 'fontSize', 'draw', 'fill', 'color'] as const satisfies readonly (keyof Animatable)[];
 
@@ -47,6 +47,40 @@ export interface Player {
   destroy(): void;
 }
 
+/** What `npm run make` wrote for a deck: its narration audio by line key, and its Word documents. */
+interface Made {
+  audio?: Record<string, { file: string; seconds: number }>;
+  handouts?: string[];
+  whole?: string;
+}
+
+const ICON = {
+  prev: 'M15 6l-6 6 6 6',
+  next: 'M9 6l6 6-6 6',
+  play: 'M8 5v14l11-7z',
+  pause: 'M7 5h4v14H7zM13 5h4v14h-4z',
+  again: 'M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5',
+  files: 'M12 4v11m0 0l-4-4m4 4l4-4M5 19h14',
+};
+const BAR_CSS = `
+.wag-bar{position:absolute;left:0;right:0;bottom:0;background:#020617;border-top:1px solid #1e293b;color:#e2e8f0;font:14px/1.3 Inter,"Segoe UI",system-ui,sans-serif;user-select:none}
+.wag-bar-row{display:flex;align-items:center;gap:6px;height:52px;padding:0 14px}
+.wag-bar button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;min-width:34px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
+.wag-bar button:hover{background:rgba(148,163,184,.2)}
+.wag-bar button[aria-pressed=true]{background:#38bdf8;color:#0f172a}
+.wag-bar button:disabled{opacity:.35;cursor:default;background:transparent}
+.wag-bar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.wag-bar svg.wag-solid{fill:currentColor;stroke:none}
+.wag-bar-count{min-width:54px;text-align:center;color:#94a3b8;font-variant-numeric:tabular-nums}
+.wag-bar-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;padding:0 8px}
+.wag-bar-line{display:none;padding:10px 18px 0;font-size:17px;line-height:1.4;color:#f8fafc;text-align:center}
+.wag-bar-files{display:none;position:absolute;right:14px;bottom:58px;min-width:280px;max-width:440px;padding:8px;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.wag-bar-files a{display:block;padding:9px 12px;border-radius:8px;color:#e2e8f0;text-decoration:none}
+.wag-bar-files a:hover{background:rgba(148,163,184,.2)}
+.wag-bar-files small{display:block;padding:8px 12px 4px;color:#94a3b8}
+.wag-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:10px;padding:16px 28px;border:0;border-radius:999px;background:#38bdf8;color:#0f172a;font:700 20px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.wag-start svg{width:22px;height:22px;fill:currentColor}`;
+
 const FLEX = { left: 'flex-start', center: 'center', right: 'flex-end', top: 'flex-start', middle: 'center', bottom: 'flex-end' };
 const SVG = 'http://www.w3.org/2000/svg';
 
@@ -74,9 +108,19 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   });
   root.append(frameEl);
 
+  // a deck that is narrated or hands out files gets a bar under the slide; other decks keep the whole window
+  const guided = deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout);
+  const bar = guided ? document.createElement('div') : null;
+  if (bar) {
+    bar.className = 'wag-bar';
+    root.append(bar);
+  }
+
   let zoom = 1;
   const fit = () => {
-    zoom = Math.min(root.clientWidth / deck.width, root.clientHeight / deck.height) || 1;
+    const room = root.clientHeight - (bar?.offsetHeight ?? 0);
+    zoom = Math.min(root.clientWidth / deck.width, room / deck.height) || 1;
+    frameEl.style.top = `${room / 2}px`;
     frameEl.style.transform = `translate(-50%, -50%) scale(${zoom})`;
   };
   const resize = new ResizeObserver(fit);
@@ -122,6 +166,219 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   /** finishes the slide transition in flight, if there is one */
   let settle: (() => void) | null = null;
 
+  // Narration. A line is heard from its audio file when `npm run make` has written one, from the
+  // browser's own voice when it has not, and is only timed when the browser has no voice at all.
+  let made: Made = {};
+  const ready: Promise<void> = deck.assets
+    ? fetch(assetUrl(deck, 'wag.json'))
+        .then((response) => (response.ok ? response.json() : {}))
+        .then((json: Made) => void (made = json))
+        .catch(() => undefined)
+    : Promise.resolve();
+  const audio = new Audio();
+  const voice = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  /** the line for where the deck is now, which the play button speaks */
+  let line: string | undefined;
+  let hearing: 'nothing' | 'playing' | 'paused' | 'blocked' = 'nothing';
+  let through: 'file' | 'voice' | 'timer' = 'timer';
+  let auto = deck.auto;
+  let captions = false;
+  let timer = 0;
+  /** changes whenever what should be heard changes, so that anything still in flight is ignored */
+  let turn = 0;
+
+  function hush() {
+    turn++;
+    audio.pause();
+    voice?.cancel();
+    window.clearTimeout(timer);
+    hearing = 'nothing';
+  }
+
+  /** Stop talking and remember `next` as the line for this spot, without saying it. */
+  function rest(next: string | undefined) {
+    hush();
+    line = next;
+    drawBar();
+  }
+
+  function say(next: string | undefined) {
+    rest(next);
+    if (!next) return;
+    const mine = turn;
+    const heard = (now: typeof hearing) => {
+      if (mine !== turn) return;
+      hearing = now;
+      drawBar();
+    };
+    const done = () => {
+      if (mine !== turn) return;
+      heard('nothing');
+      // only a line that was heard moves the deck on, so a slide with nothing to say waits for the viewer
+      if (auto && !atEnd()) timer = window.setTimeout(() => mine === turn && player.next(), 700);
+    };
+    const timed = () => {
+      through = 'timer';
+      heard('playing');
+      timer = window.setTimeout(done, 1500 + next.length * 65);
+    };
+    const aloud = () => {
+      if (!voice) return timed();
+      through = 'voice';
+      const utterance = new SpeechSynthesisUtterance(spoken(deck, next));
+      utterance.onend = done;
+      utterance.onerror = (event) => (event.error === 'not-allowed' ? heard('blocked') : undefined);
+      voice.speak(utterance);
+      heard('playing');
+    };
+    void ready.then(() => {
+      if (mine !== turn) return;
+      const clip = made.audio?.[lineKey(spoken(deck, next))];
+      if (!clip) return aloud();
+      through = 'file';
+      audio.src = assetUrl(deck, `audio/${clip.file}`);
+      audio.onended = done;
+      audio.onerror = () => mine === turn && aloud();
+      // a browser holds sound back until the viewer has clicked or pressed a key on the page
+      audio.play().then(
+        () => heard('playing'),
+        (error: Error) => heard(error.name === 'NotAllowedError' ? 'blocked' : 'nothing')
+      );
+    });
+  }
+
+  /** The play button: pause what is playing, carry on what is paused, or say the current line again. */
+  function playPause() {
+    if (hearing === 'playing' && through !== 'timer') {
+      if (through === 'file') audio.pause();
+      else voice?.pause();
+      hearing = 'paused';
+    } else if (hearing === 'paused') {
+      if (through === 'file') void audio.play();
+      else voice?.resume();
+      hearing = 'playing';
+    } else if (hearing === 'playing') {
+      hush();
+    } else return say(line);
+    drawBar();
+  }
+
+  const lineAt = (stage: Stage) => stage.slide.narration[stage.step + 1];
+  const shown = () => deck.slides.filter((s) => !s.hidden);
+  const atEnd = () => {
+    const stage = stages[index];
+    return stage.step >= stage.slide.steps.length - 1 && !deck.slides.slice(index + 1).some((s) => !s.hidden);
+  };
+
+  let drawBar = () => {};
+  if (bar) {
+    const css = document.createElement('style');
+    css.textContent = BAR_CSS;
+    bar.append(css);
+    const icon = (d: string, solid = false) => `<svg viewBox="0 0 24 24"${solid ? ' class="wag-solid"' : ''}><path d="${d}"/></svg>`;
+    const button = (html: string, title: string, act: () => void) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = html;
+      b.title = title;
+      b.addEventListener('click', () => {
+        act();
+        // the arrow keys and space should keep moving the deck, not press this button again
+        b.blur();
+      });
+      return b;
+    };
+    const lineEl = document.createElement('div');
+    lineEl.className = 'wag-bar-line';
+    const row = document.createElement('div');
+    row.className = 'wag-bar-row';
+    const count = document.createElement('span');
+    count.className = 'wag-bar-count';
+    const title = document.createElement('span');
+    title.className = 'wag-bar-title';
+    const files = document.createElement('div');
+    files.className = 'wag-bar-files';
+    const prev = button(icon(ICON.prev), 'Back (left arrow)', () => player.prev());
+    const next = button(icon(ICON.next), 'Next (right arrow)', () => player.next());
+    const play = button('', '', playPause);
+    const again = button(icon(ICON.again), 'Say this again', () => say(line));
+    const autoButton = button('Auto', 'Move on when the narration ends (A)', () => setAuto(!auto));
+    const captionButton = button('Text', 'Show the words being said (C)', () => setCaptions(!captions));
+    const fileButton = button('', 'Files for this slide', () => (files.style.display = files.style.display === 'block' ? 'none' : 'block'));
+    row.append(prev, count, next, title, play, again, autoButton, captionButton, fileButton);
+    bar.append(lineEl, row, files);
+
+    const start = document.createElement('button');
+    start.className = 'wag-start';
+    start.innerHTML = `<svg viewBox="0 0 24 24"><path d="${ICON.play}"/></svg>Start with sound`;
+    start.addEventListener('click', () => say(line));
+    root.append(start);
+
+    const narrated = deck.slides.some((s) => s.narration.length > 0);
+    for (const b of [play, again, autoButton, captionButton]) b.hidden = !narrated;
+    fit();
+
+    drawBar = () => {
+      const stage = stages[index];
+      if (!stage) return;
+      const visible = shown();
+      const at = visible.indexOf(stage.slide);
+      count.textContent = at < 0 ? '' : `${at + 1} / ${visible.length}`;
+      title.textContent = stage.slide.title ?? deck.title ?? '';
+      const going = hearing === 'playing';
+      play.innerHTML = icon(going ? ICON.pause : ICON.play, true);
+      play.title = going ? 'Pause the narration (P)' : 'Play the narration (P)';
+      play.disabled = !line;
+      again.disabled = !line;
+      autoButton.setAttribute('aria-pressed', String(auto));
+      captionButton.setAttribute('aria-pressed', String(captions));
+      start.style.display = hearing === 'blocked' ? 'inline-flex' : 'none';
+
+      const show = captions && line ? 'block' : 'none';
+      lineEl.textContent = line ?? '';
+      if (lineEl.style.display !== show) {
+        lineEl.style.display = show;
+        fit();
+      }
+
+      const offered: Download[] = [...stage.slide.downloads];
+      const handout = stage.slide.handout ? handoutFile(deck, stage.slide) : undefined;
+      if (handout && made.handouts?.includes(handout)) offered.push({ label: 'This slide as a Word document', href: assetUrl(deck, `handouts/${handout}`) });
+      files.replaceChildren();
+      const link = (item: Download) => {
+        const a = document.createElement('a');
+        a.href = item.href;
+        a.download = '';
+        a.textContent = item.label;
+        files.append(a);
+      };
+      offered.forEach(link);
+      if (made.whole) {
+        const heading = document.createElement('small');
+        heading.textContent = 'The whole walkthrough';
+        files.append(heading);
+        link({ label: 'Every slide as one Word document', href: assetUrl(deck, made.whole) });
+      }
+      const total = files.querySelectorAll('a').length;
+      fileButton.innerHTML = `${icon(ICON.files)}Files${offered.length ? ` (${offered.length})` : ''}`;
+      fileButton.hidden = total === 0;
+      if (total === 0) files.style.display = 'none';
+    };
+    // the handout links depend on what was made, which arrives a moment after the first slide
+    void ready.then(() => drawBar());
+  }
+
+  function setAuto(on: boolean) {
+    auto = on;
+    if (!on) window.clearTimeout(timer);
+    drawBar();
+  }
+
+  function setCaptions(on: boolean) {
+    captions = on;
+    drawBar();
+  }
+
   const bgOf = (stage: Stage) => stage.slide.bg ?? deck.bg;
   const configOf = (stage: Stage, view: View) => motionOptions(view.el.motion ?? stage.slide.motion ?? deck.motion);
   const value = (view: View, k: keyof Animatable) => view.values[k] as MotionValue<string | number>;
@@ -153,6 +410,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     if (el.kind === 'choice' && el.name) buildChoice(node, el, el.name);
     if (el.font) node.style.fontFamily = el.font;
     if (el.stroke && el.kind !== 'path') node.style.border = `${el.strokeWidth}px solid ${el.stroke}`;
+    // one shadow with no blur and a spread wider than any slide: everything outside the element
+    if (el.shade) node.style.boxShadow = `0 0 0 4000px ${el.shade}`;
     if (el.text !== undefined) node.textContent = el.text;
     if (el.kind === 'image' && el.src) {
       const img = document.createElement('img');
@@ -492,6 +751,9 @@ export function mount(deck: Deck, root: HTMLElement): Player {
 
     const kind = from ? ((back ? from : to).slide.transition ?? deck.transition) : 'none';
     enter(to, back, kind === 'morph' && from ? from : undefined);
+    // going back is for looking again, so the line waits for the play button
+    if (back) rest(lineAt(to));
+    else say(lineAt(to));
     if (!from) return;
 
     const cleanup: (() => void)[] = [
@@ -587,7 +849,12 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
     if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) player.next();
     else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) player.prev();
-    else if (e.key === 'r' || e.key === 'R') enter(stages[index], false);
+    else if (e.key === 'r' || e.key === 'R') {
+      enter(stages[index], false);
+      say(lineAt(stages[index]));
+    } else if (bar && (e.key === 'p' || e.key === 'P')) playPause();
+    else if (bar && (e.key === 'a' || e.key === 'A')) setAuto(!auto);
+    else if (bar && (e.key === 'c' || e.key === 'C')) setCaptions(!captions);
     else if (e.key === 'Home') player.go(0);
     else if (e.key === 'End') player.go(stages.length - 1);
     else return;
@@ -616,6 +883,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       if (stage.step < stage.slide.steps.length - 1) {
         stage.step++;
         retarget(stage, [stage.slide.steps[stage.step]]);
+        say(lineAt(stage));
       } else along(1);
     },
     prev() {
@@ -624,11 +892,15 @@ export function mount(deck: Deck, root: HTMLElement): Player {
         const undone = stage.slide.steps[stage.step];
         stage.step--;
         retarget(stage, [undone]);
+        rest(lineAt(stage));
       } else along(-1);
     },
     destroy() {
       settle?.();
+      hush();
       for (const stage of stages) quiet(stage);
+      bar?.remove();
+      root.querySelector('.wag-start')?.remove();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('hashchange', onHash);
       resize.disconnect();

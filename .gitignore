@@ -1,3 +1,7 @@
 node_modules
 dist
 *.pptx
+# written by `npm run make`
+public/*/audio
+public/*/handouts
+public/*/wag.json

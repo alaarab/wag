@@ -14,6 +14,11 @@ npm run new my-deck  # creates decks/my-deck.ts from a starter
 
 Arrow keys move between slides and builds. `R` replays the current slide.
 
+```sh
+npm run make my-deck # narration audio and Word handouts for a guided deck (see below)
+npm run build        # a static copy of the player and every deck, in dist/
+```
+
 ## A slide
 
 ```ts
@@ -48,20 +53,63 @@ The canvas is 1280 x 720. A slide is a small state machine: a state is a set of 
 | Collecting answers | `field(name, …)`, `choice(name, options, …)`, `click: { save: 'file' }` downloads an .xlsx |
 | Video | `video('/clip.mp4', { repeat, sound })`, files in `public/` |
 | Free-form code | `scene(options, (root, { animate, answers }) => { … })` |
+| Narration | `slide({ narration: ['said on arrival', 'said after step 1'] })` |
+| A story of cause, effect and fix | `story({ title, timeline, cause, effect, fix })` |
+| A screenshot with callouts | `shot('/pic.png', { size, callouts: [{ at, label, say }] })` |
+| Files to take away | `slide({ downloads: [{ label, href }], handout: true })` |
+| Picking an element out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside it |
 
-`decks/demo.ts` uses all of these, and `decks/scenes/film.ts` is a full-slide scene.
+`decks/demo.ts` uses the first twelve, `decks/scenes/film.ts` is a full-slide scene, and `decks/guide.ts` is a guided deck.
+
+## Guided decks
+
+A deck that walks someone through something: it talks, points at regions of a screenshot, and hands out files. A deck with narration or downloads gets a bar under the slide with back and next, play and pause, say again, Auto, Text and Files. `P` plays or pauses the voice, `A` switches Auto, `C` shows the words being said.
+
+**Narration.** `narration` is a list of plain sentences: the first is said when the slide arrives, each later one after the matching step. With Auto on (`deck({ auto: true })` starts that way) the deck moves on when a line ends, so it plays through like a video; a slide with nothing to say waits for the viewer. Going back never talks. `deck({ pronounce: { 'Q&A': 'Q and A,' } })` changes how something is said without changing what is shown.
+
+`npm run make <deck>` turns every line into an audio file with [Piper](https://github.com/OHF-Voice/piper1-gpl), a voice that runs on your own machine, so the words go nowhere. Each file is named after its line, so only changed lines are spoken again. Without those files, or for a line that has none, the player uses the browser's own voice, and with no voice at all it shows the words and waits about as long as reading them takes. Browsers hold sound back until the first click or key press, so a deck opened cold shows a "Start with sound" button.
+
+To set Piper up once:
+
+```sh
+python3 -m venv ~/.local/share/wag-voice/venv
+~/.local/share/wag-voice/venv/bin/pip install piper-tts
+~/.local/share/wag-voice/venv/bin/python -m piper.download_voices en_US-lessac-high --data-dir ~/.local/share/wag-voice/voices
+```
+
+`WAG_PIPER` and `WAG_VOICE` point at a different program or voice file. `ffmpeg` is needed too.
+
+**Story.** `story()` is a slide for how something came up: a timeline across the top, then three cards that arrive one step at a time for what caused it, what it did and what fixes it.
+
+**Screenshot with callouts.** `shot()` shows a picture with numbered regions. The whole picture comes first with every region marked; each step zooms in on one, dims the rest and shows that callout's label, and its `say` line is the narration. Regions are in the picture's own pixels, so they can be read straight off the screenshot. `issue: true` marks a callout as a known problem.
+
+**Files.** `downloads` lists files a slide offers, and `shot()` offers its picture by default. `handout: true` adds a Word document of the slide (title, picture, and each point), which `npm run make` writes along with one document of the whole deck. These need `deck({ assets: '/my-deck' })`, the folder under `public/` the made files go in. That folder's `audio/`, `handouts/` and `wag.json` are not committed.
+
+## Decks outside the repo
+
+A deck made from private material should not sit in this repo. Set `WAG_DECKS` to a folder elsewhere: its `*.ts` files are listed and played with the repo's own, and its `public/` folder is served the same way.
+
+```sh
+WAG_DECKS=~/private-decks npm run dev
+WAG_DECKS=~/private-decks npm run make my-deck
+WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build
+```
+
+`WAG_OUT` puts the static build somewhere else too. The build is plain files: any static file server can show it.
 
 ## PowerPoint export
 
 The start page has a **Download .pptx** button per deck. PowerPoint cannot run the interactions, so they are translated: entrances and builds become native animations with the springs baked into keyframes, and hover and click states become hidden slides joined by Morph and reached through mouse-over and click actions.
 
-Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video and working fields. The exported file opens in PowerPoint without repair, but how it plays in a live slideshow has not been verified.
+Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video, working fields, narration, shades and downloads. The exported file opens in PowerPoint without repair, but how it plays in a live slideshow has not been verified.
 
 ## Layout
 
 - `src/scene.ts`: the deck format and its builders
-- `src/player.ts`: the browser player
+- `src/kit.ts`: ready-made slides (`story`, `shot`) built from the same elements
+- `src/player.ts`: the browser player, with the narration bar
 - `src/pptx.ts`: the .pptx exporter
 - `app/`: the dev page that lists and plays decks
 - `decks/`: one file per deck
+- `scripts/make.mjs`: writes a guided deck's audio and Word handouts
 - `spike/`: the script that first tested which hand-written animation XML PowerPoint accepts
