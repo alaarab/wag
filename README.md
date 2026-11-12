@@ -63,7 +63,7 @@ The canvas is 1280 x 720. A slide is a small state machine: a state is a set of 
 
 ## Walkthrough decks
 
-A deck that walks someone through something: it talks, points at regions of a screenshot, and hands out files. A deck with narration or downloads gets a bar under the slide with back and next, play and pause, say again, Auto, Text and Files. `P` plays or pauses the voice, `A` switches Auto, `C` shows the words being said.
+A deck that walks someone through something: it talks, points at regions of a screenshot, and hands out files. A deck with narration or downloads gets a bar under the slide: Back and Next, play and pause, say again, speed, Auto, Text, Files, and a strip of every step in the deck, sized by how long each is spoken, with the time so far. Click the strip to jump; big arrows at the sides appear when the mouse moves. Arrow keys move; in a narrated deck Space pauses and carries on, `A` switches Auto, `C` shows the words being said. Auto waits about two seconds after each line, with a countdown on Next, and pressing Back turns it off.
 
 **Narration.** `narration` is a list of plain sentences: the first is said when the slide arrives, each later one after the matching step. With Auto on (`deck({ auto: true })` starts that way) the deck moves on when a line ends, so it plays through like a video; a slide with nothing to say waits for the viewer. Going back never talks. `deck({ pronounce: { 'Q&A': 'Q and A,' } })` changes how something is said without changing what is shown.
 

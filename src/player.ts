@@ -90,6 +90,26 @@ const BAR_CSS = `
 .wag-bar-live .wait::before{content:"\\2026";color:#fbbf24}
 .wag-bar-live .note{color:#94a3b8}
 .wag-bar-live small{color:#94a3b8}
+.wag-bar button.wag-nav{padding:0 12px;background:#1e293b}
+.wag-bar button.wag-nav:hover{background:#334155}
+.wag-bar button.wag-counting{position:relative;overflow:hidden}
+.wag-bar button.wag-counting::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:0;background:#38bdf8;animation:wag-count var(--wait) linear forwards}
+@keyframes wag-count{from{width:0}to{width:100%}}
+.wag-timeline{display:flex;gap:5px;align-items:center;height:20px;padding:6px 14px 0}
+.wag-tl-slide{display:flex;gap:2px;min-width:8px;height:16px;align-items:center}
+.wag-seg{flex:1 1 0;min-width:3px;height:8px;background:#334155;border-radius:3px;position:relative;overflow:hidden;cursor:pointer;transition:height .12s}
+.wag-seg:hover{height:14px;background:#64748b}
+.wag-seg.done{background:#0369a1}
+.wag-seg.now{height:14px;background:#334155;box-shadow:0 0 0 2px #38bdf8}
+.wag-seg i{position:absolute;left:0;top:0;bottom:0;width:0;background:#38bdf8}
+.wag-seg.done i{width:100%}
+.wag-time{min-width:92px;text-align:right;color:#94a3b8;font-variant-numeric:tabular-nums;font-size:13px}
+.wag-edge{position:absolute;width:56px;height:56px;margin-top:-28px;border:0;border-radius:50%;background:rgba(2,6,23,.6);color:#f8fafc;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;cursor:pointer;z-index:4}
+.wag-edge.on{opacity:1;pointer-events:auto}
+.wag-edge:hover{background:rgba(56,189,248,.9);color:#0f172a}
+.wag-edge svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.wag-hint{position:absolute;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:999px;background:rgba(2,6,23,.88);color:#e2e8f0;font:15px Inter,"Segoe UI",system-ui,sans-serif;white-space:nowrap;transition:opacity .4s;z-index:5;pointer-events:none}
+.wag-hint b{color:#38bdf8}
 .wag-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:10px;padding:16px 28px;border:0;border-radius:999px;background:#38bdf8;color:#0f172a;font:700 20px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .wag-start svg{width:22px;height:22px;fill:currentColor}`;
 
@@ -122,6 +142,11 @@ export function mount(deck: Deck, root: HTMLElement): Player {
 
   // a deck that is narrated or hands out files gets a bar under the slide; other decks keep the whole window
   const guided = deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout || s.live);
+  const narrated = deck.slides.some((s) => s.narration.length > 0);
+  // set once the bar is built: where its arrows and hint go as the window changes size, and how it stops
+  let placeEdges = (_middle: number) => {};
+  let placeHint = (_fromBottom: number) => {};
+  let stopBar = () => {};
   const bar = guided ? document.createElement('div') : null;
   if (bar) {
     bar.className = 'wag-bar';
@@ -133,6 +158,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     const room = root.clientHeight - (bar?.offsetHeight ?? 0);
     zoom = Math.min(root.clientWidth / deck.width, room / deck.height) || 1;
     frameEl.style.top = `${room / 2}px`;
+    placeEdges(room / 2);
+    placeHint(bar?.offsetHeight ?? 0);
     frameEl.style.transform = `translate(-50%, -50%) scale(${zoom})`;
   };
   const resize = new ResizeObserver(fit);
@@ -196,6 +223,12 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   let auto = deck.auto;
   let captions = false;
   let timer = 0;
+  /** how fast the narration plays */
+  let speed = 1;
+  /** when Auto will move on, while it is waiting to; 0 when it is not */
+  let countdown = 0;
+  /** how long Auto waits after a line before moving on, so there is time to look */
+  const WAIT = 2200;
   /** changes whenever what should be heard changes, so that anything still in flight is ignored */
   let turn = 0;
 
@@ -204,6 +237,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     audio.pause();
     voice?.cancel();
     window.clearTimeout(timer);
+    countdown = 0;
     hearing = 'nothing';
   }
 
@@ -228,17 +262,26 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       heard('nothing');
       // only a line that was heard moves the deck on, so a slide with nothing to say waits for the viewer
       // nor does a slide that drives the live page: the viewer has buttons to press there
-      if (auto && !atEnd() && !stages[index].slide.live) timer = window.setTimeout(() => mine === turn && player.next(), 700);
+      if (auto && !atEnd() && !stages[index].slide.live) {
+        countdown = Date.now() + WAIT;
+        drawBar();
+        timer = window.setTimeout(() => {
+          if (mine !== turn) return;
+          countdown = 0;
+          player.next();
+        }, WAIT);
+      }
     };
     const timed = () => {
       through = 'timer';
       heard('playing');
-      timer = window.setTimeout(done, 1500 + next.length * 65);
+      timer = window.setTimeout(done, (1500 + next.length * 65) / speed);
     };
     const aloud = () => {
       if (!voice) return timed();
       through = 'voice';
       const utterance = new SpeechSynthesisUtterance(spoken(deck, next));
+      utterance.rate = speed;
       utterance.onend = done;
       utterance.onerror = (event) => (event.error === 'not-allowed' ? heard('blocked') : undefined);
       voice.speak(utterance);
@@ -250,6 +293,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       if (!clip) return aloud();
       through = 'file';
       audio.src = assetUrl(deck, `audio/${clip.file}`);
+      audio.playbackRate = speed;
       audio.onended = done;
       audio.onerror = () => mine === turn && aloud();
       // a browser holds sound back until the viewer has clicked or pressed a key on the page
@@ -363,6 +407,26 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     report = null;
   }
 
+  /** Every place the deck can stand, in order: each shown slide, then each of its steps, with how long its line takes. */
+  const secondsOf = (said: string | undefined) => (said ? (made.audio?.[lineKey(spoken(deck, said))]?.seconds ?? 1.5 + said.length * 0.065) : 3);
+  const places = () =>
+    deck.slides.flatMap((s, i) => (s.hidden ? [] : [-1, ...s.steps.map((_, k) => k)].map((step) => ({ slide: i, step, said: s.narration[step + 1], seconds: secondsOf(s.narration[step + 1]) }))));
+
+  /** Go straight to one step of one slide, and say its line. */
+  function jump(target: number, step: number) {
+    if (target !== index) show(target);
+    const stage = stages[index];
+    stage.step = Math.min(step, stage.slide.steps.length - 1);
+    retarget(stage, stage.slide.steps);
+    say(lineAt(stage));
+  }
+
+  /** The viewer going back has taken the wheel: Auto stops so the deck does not run on by itself. */
+  function goBack() {
+    if (auto) setAuto(false);
+    player.prev();
+  }
+
   let drawBar = () => {};
   if (bar) {
     const css = document.createElement('style');
@@ -391,8 +455,61 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     title.className = 'wag-bar-title';
     const files = document.createElement('div');
     files.className = 'wag-bar-files';
-    const prev = button(icon(ICON.prev), 'Back (left arrow)', () => player.prev());
-    const next = button(icon(ICON.next), 'Next (right arrow)', () => player.next());
+    const prev = button(`${icon(ICON.prev)}Back`, 'Back (left arrow). Turns Auto off.', goBack);
+    const next = button(`Next${icon(ICON.next)}`, 'Next (right arrow)', () => player.next());
+    prev.className = 'wag-nav';
+    next.className = 'wag-nav';
+    const speedButton = button('1×', 'Narration speed', () => {
+      speed = speed === 1 ? 1.25 : speed === 1.25 ? 0.85 : 1;
+      audio.playbackRate = speed;
+      drawBar();
+    });
+    const time = document.createElement('span');
+    time.className = 'wag-time';
+    // the whole deck as a strip: one mark per step, as long as its line takes to say; click one to go there
+    const timeline = document.createElement('div');
+    timeline.className = 'wag-timeline';
+    let marks: { el: HTMLElement; fill: HTMLElement; slide: number; step: number; seconds: number }[] = [];
+    const buildTimeline = () => {
+      timeline.replaceChildren();
+      marks = [];
+      let group: HTMLElement | null = null;
+      let groupSlide = -1;
+      let groupSeconds = 0;
+      for (const place of places()) {
+        if (place.slide !== groupSlide) {
+          if (group) group.style.flexGrow = String(groupSeconds);
+          group = document.createElement('div');
+          group.className = 'wag-tl-slide';
+          timeline.append(group);
+          groupSlide = place.slide;
+          groupSeconds = 0;
+        }
+        const el = document.createElement('div');
+        el.className = 'wag-seg';
+        el.style.flexGrow = String(place.seconds);
+        const s = deck.slides[place.slide];
+        el.title = `${s.title ?? `Slide ${place.slide + 1}`}${place.said ? `: ${place.said.slice(0, 120)}${place.said.length > 120 ? '…' : ''}` : ''}`;
+        const fill = document.createElement('i');
+        el.append(fill);
+        el.addEventListener('click', () => jump(place.slide, place.step));
+        group!.append(el);
+        groupSeconds += place.seconds;
+        marks.push({ el, fill, slide: place.slide, step: place.step, seconds: place.seconds });
+      }
+      if (group) group.style.flexGrow = String(groupSeconds);
+    };
+    const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+    // the mark being spoken fills as its line plays
+    let ticking = true;
+    const tick = () => {
+      if (!ticking) return;
+      const now = marks.find((m) => m.el.classList.contains('now'));
+      if (now) now.fill.style.width = hearing === 'playing' && through === 'file' && audio.duration ? `${Math.min(100, (audio.currentTime / audio.duration) * 100)}%` : hearing === 'nothing' && !line ? '0' : now.fill.style.width;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    stopBar = () => (ticking = false);
     const play = button('', '', playPause);
     const again = button(icon(ICON.again), 'Say this again', () => say(line));
     const autoButton = button('Auto', 'Move on when the narration ends (A)', () => setAuto(!auto));
@@ -405,8 +522,48 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     for (const b of liveButtons) b.className = 'wag-live';
     const livePanel = document.createElement('div');
     livePanel.className = 'wag-bar-live';
-    row.append(prev, count, next, title, ...liveButtons, play, again, autoButton, captionButton, fileButton);
-    bar.append(lineEl, row, files, livePanel);
+    row.append(prev, count, next, title, ...liveButtons, play, again, speedButton, autoButton, captionButton, time, fileButton);
+    bar.append(lineEl, timeline, row, files, livePanel);
+
+    // big arrows at the sides of the slide while the mouse moves over it
+    const edges = [
+      [goBack, ICON.prev, 'Back', 'left'],
+      [() => player.next(), ICON.next, 'Next', 'right'],
+    ] as const;
+    const edgeButtons = edges.map(([act, d, label, side]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'wag-edge';
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      b.innerHTML = `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+      b.style[side] = '14px';
+      b.addEventListener('click', () => {
+        act();
+        b.blur();
+      });
+      root.append(b);
+      return b;
+    });
+    let idle = 0;
+    const wake = () => {
+      for (const b of edgeButtons) b.classList.add('on');
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => edgeButtons.forEach((b) => b.classList.remove('on')), 2200);
+    };
+    root.addEventListener('pointermove', wake);
+    placeEdges = (middle: number) => edgeButtons.forEach((b) => (b.style.top = `${middle}px`));
+
+    // say once how to move, then get out of the way
+    const hint = document.createElement('div');
+    hint.className = 'wag-hint';
+    hint.innerHTML = '<b>Back</b> and <b>Next</b>, or the left and right arrow keys. <b>Space</b> pauses the voice. Click the strip at the bottom to jump.';
+    root.append(hint);
+    const hideHint = () => (hint.style.opacity = '0');
+    window.setTimeout(hideHint, 9000);
+    window.addEventListener('keydown', hideHint, { once: true });
+    root.addEventListener('pointerdown', hideHint, { once: true });
+    placeHint = (fromBottom: number) => (hint.style.bottom = `${fromBottom + 12}px`);
 
     const start = document.createElement('button');
     start.className = 'wag-start';
@@ -414,8 +571,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     start.addEventListener('click', () => say(line));
     root.append(start);
 
-    const narrated = deck.slides.some((s) => s.narration.length > 0);
-    for (const b of [play, again, autoButton, captionButton]) b.hidden = !narrated;
+    for (const b of [play, again, speedButton, autoButton, captionButton]) b.hidden = !narrated;
+    buildTimeline();
     fit();
 
     drawBar = () => {
@@ -424,6 +581,23 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       const visible = shown();
       const at = visible.indexOf(stage.slide);
       count.textContent = at < 0 ? '' : `${at + 1} / ${visible.length}`;
+      // the strip: what is behind, where the deck stands, and the time so far of the whole
+      const here = marks.findIndex((m) => m.slide === index && m.step === stage.step);
+      marks.forEach((m, i) => {
+        m.el.classList.toggle('done', here >= 0 && i < here);
+        m.el.classList.toggle('now', i === here);
+        if (i !== here) m.fill.style.width = '';
+      });
+      const sum = (list: typeof marks) => list.reduce((total, m) => total + m.seconds, 0);
+      time.textContent = marks.length ? `${clock(sum(marks.slice(0, Math.max(0, here))))} / ${clock(sum(marks))}` : '';
+      time.hidden = !narrated;
+      speedButton.textContent = `${speed}×`;
+      const waiting = countdown - Date.now();
+      next.classList.toggle('wag-counting', waiting > 0);
+      if (waiting > 0) {
+        next.style.setProperty('--wait', `${waiting}ms`);
+        next.title = 'Moving on by itself in a moment. Back, or Auto off, stops it.';
+      } else next.title = 'Next (right arrow)';
       title.textContent = stage.slide.title ?? deck.title ?? '';
       const going = hearing === 'playing';
       play.innerHTML = icon(going ? ICON.pause : ICON.play, true);
@@ -496,8 +670,11 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       fileButton.hidden = total === 0;
       if (total === 0) files.style.display = 'none';
     };
-    // the handout links depend on what was made, which arrives a moment after the first slide
-    void ready.then(() => drawBar());
+    // the handout links and the line lengths depend on what was made, which arrives a moment after the first slide
+    void ready.then(() => {
+      buildTimeline();
+      drawBar();
+    });
   }
 
   function setAuto(on: boolean) {
@@ -981,8 +1158,10 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     // keys typed into a field belong to the field
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
-    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) player.next();
-    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) player.prev();
+    // in a narrated deck Space pauses and carries on, the way it does in a video
+    if (e.key === ' ' && bar && narrated) playPause();
+    else if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) player.next();
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) (bar ? goBack : player.prev)();
     else if (e.key === 'r' || e.key === 'R') {
       enter(stages[index], false);
       say(lineAt(stages[index]));
@@ -1033,8 +1212,10 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       settle?.();
       hush();
       leaveLive();
+      stopBar();
       for (const stage of stages) quiet(stage);
       bar?.remove();
+      root.querySelectorAll('.wag-edge, .wag-hint').forEach((el) => el.remove());
       root.querySelector('.wag-start')?.remove();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('hashchange', onHash);
