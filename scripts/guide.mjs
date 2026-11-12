@@ -52,6 +52,7 @@ const bodies = {
   clear: () => ({}),
   screenshot: () => ({ as: words[0] }),
   download: () => ({ target: target(words[0]), as: flags.as ?? 'download' }),
+  capture: () => ({ target: target(words[0]), as: flags.as ?? 'file' }),
   check: () => ({ items: JSON.parse(words[0]) }),
 };
 

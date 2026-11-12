@@ -41,7 +41,7 @@
   <p id="about" style="color:#475569"></p>
   <div id="headline"></div>
   <div class="bar">
-    <a id="entry" href="correcting-entry.xlsx" download role="button" style="text-decoration:none;color:inherit;padding:7px 14px;border-radius:999px;border:1px solid #cbd5e1;background:#fff">Correcting entry</a>
+    <button id="entry">Correcting entry</button>
     <button id="post" class="danger">Post entry</button>
     <button id="close">Close</button>
   </div>
@@ -75,6 +75,15 @@
     });
   }
   month.addEventListener('change', () => { history.replaceState(null, '', `?month=${month.value}`); draw(); });
+  // handed over the way apps do it: fetch the file, make a blob, click a link to it
+  document.getElementById('entry').addEventListener('click', async () => {
+    const blob = await (await fetch('correcting-entry.xlsx')).blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'correcting-entry.xlsx';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
   document.getElementById('close').addEventListener('click', () => detail.close());
   document.getElementById('post').addEventListener('click', () => (document.getElementById('posted').style.display = 'block'));
   draw();

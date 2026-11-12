@@ -16,10 +16,10 @@
 // "PRIVATE: production data").
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { extname, join, normalize, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 
@@ -33,6 +33,8 @@ const voiceHome = join(homedir(), '.local/share/wag-voice');
 const voiceFile = option('voice', join(voiceHome, 'voices/en_US-lessac-medium.onnx'));
 const pronounce = option('pronounce') ? JSON.parse(readFileSync(option('pronounce'), 'utf8')) : {};
 const label = option('label', '');
+// a built deck folder to serve too, so a guided deck's buttons reach the bridge through this session
+const deckDir = option('deck') ? resolve(option('deck')) : null;
 mkdirSync(join(dir, 'audio'), { recursive: true });
 mkdirSync(resolve(keyFile, '..'), { recursive: true });
 const token = randomBytes(24).toString('hex');
@@ -228,10 +230,15 @@ async function stopRecording() {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  if ((req.headers['x-wag-key'] ?? url.searchParams.get('key')) !== key()) {
+  // the key arrives in the address once; after that the browser carries it in a cookie, so a deck's
+  // own files and audio are as closed to other programs as the bridge is
+  const cookie = /(?:^|;\s*)wagkey=([a-f0-9]+)/.exec(req.headers.cookie ?? '')?.[1];
+  const given = req.headers['x-wag-key'] ?? url.searchParams.get('key') ?? cookie;
+  if (given !== key()) {
     res.writeHead(401);
     return res.end();
   }
+  if (url.searchParams.get('key')) res.setHeader('Set-Cookie', `wagkey=${key()}; Path=/; HttpOnly; SameSite=Strict`);
   const json = (body) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -250,6 +257,14 @@ const server = http.createServer(async (req, res) => {
       const made = await speak(id, text);
       const line = add({ who: 'guide', text, audio: made.seconds ? `${id}.wav` : undefined, seconds: made.seconds });
       return json({ ok: true, n: line.n, seconds: made.seconds ?? null });
+    }
+  }
+  if (deckDir && (url.pathname === '/' ? url.searchParams.has('deck') : !['/console', '/lines', '/events', '/mirror'].includes(url.pathname) && !url.pathname.startsWith('/audio/line-'))) {
+    const file = join(deckDir, normalize(decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
+    if (file.startsWith(deckDir) && existsSync(file) && statSync(file).isFile()) {
+      const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'text/html' });
+      return createReadStream(file).pipe(res);
     }
   }
   if (url.pathname === '/' || url.pathname === '/console') {

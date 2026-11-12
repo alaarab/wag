@@ -238,8 +238,22 @@ export type LiveAction =
  */
 export type Reading =
   | { page: Target; pick?: string }
-  | { file: string; sheet: string; column: string; where?: Record<string, string>; take?: 'sum' | 'all' | 'first' }
-  | { value: number | string };
+  | {
+      file: string;
+      sheet: string;
+      /** a column heading. With `take: 'moved'` it is left out: see there. */
+      column?: string;
+      where?: Record<string, string>;
+      /**
+       * sum (the default), all (the distinct values), first, count (how many rows), or moved: for a correcting entry
+       * whose lines come in pairs with the account being moved off first, credits less debits on
+       * the first line of each pair, which is what the entry takes off that account
+       */
+      take?: 'sum' | 'all' | 'first' | 'moved' | 'count';
+    }
+  | { value: number | string }
+  /** figures added together; `minus` ones are taken away */
+  | { add: Reading[]; minus?: Reading[] };
 
 export interface LiveCheck {
   /** what is being checked, as the viewer should hear it */
@@ -248,6 +262,8 @@ export interface LiveCheck {
   equals: Reading;
   /** compare sizes and ignore the sign, for a figure one side shows as a credit */
   abs?: boolean;
+  /** with two file readings: one comparison per sheet that `read` matches, named after the sheet */
+  each?: boolean;
 }
 
 /** What a guided slide can do on the live page. Each part is one button in the player. */

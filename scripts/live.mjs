@@ -21,7 +21,7 @@
 // It needs only Node and Playwright, so it can be copied next to any Playwright install.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
@@ -88,13 +88,61 @@ async function visibleTab() {
   return (showing.find((s) => host && s.candidate.url().includes(host)) ?? showing.find((s) => s.focused) ?? showing[0])?.candidate ?? null;
 }
 
+/** A tab of the bridge's own, opened behind whatever the person at that browser is looking at. */
+async function quietTab() {
+  const context = browser.contexts()[0];
+  try {
+    const session = await browser.newBrowserCDPSession();
+    const arriving = context.waitForEvent('page', { timeout: 8000 });
+    await session.send('Target.createTarget', { url: 'about:blank', background: true });
+    return await arriving;
+  } catch {
+    return context.newPage();
+  }
+}
+
+/**
+ * A browser with a window belongs to whoever sits at it. Only a session that person started may
+ * drive it; building, testing and recording need a browser with no window. Checked before every
+ * connection, here in the bridge rather than in anyone's instructions.
+ */
+async function mayUse() {
+  const version = await fetch(`${cdp}/json/version`, { signal: AbortSignal.timeout(4000) }).then((r) => r.json());
+  const hidden = /Headless/i.test(version['User-Agent'] ?? '');
+  if (!hidden && !liveSession) {
+    throw new Refused('That browser has a window, so it is someone\'s. The bridge only drives a windowless browser unless the person at it started a live session (--live).');
+  }
+}
+
 async function tab() {
   if (!browser?.isConnected()) {
+    await mayUse();
     browser = await chromium.connectOverCDP(cdp, { timeout: 8000 });
     page = null;
+    // any download the browser itself makes goes to this folder under its own name, never to the person's list of downloads
+    if (!liveSession) {
+      const session = await browser.newBrowserCDPSession();
+      await session.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: filesDir, eventsEnabled: true }).catch(() => {});
+      // the browser names each file by a random id; give it back its own name when it is complete
+      const names = new Map();
+      session.on('Browser.downloadWillBegin', (event) => names.set(event.guid, event.suggestedFilename));
+      session.on('Browser.downloadProgress', (event) => {
+        if (event.state !== 'completed' || !names.has(event.guid)) return;
+        const name = names.get(event.guid);
+        const file = join(filesDir, name);
+        try {
+          renameSync(join(filesDir, event.guid), file);
+        } catch {
+          return;
+        }
+        lastDownload = { name, file, at: Date.now() };
+        kept.set(name, file);
+        if (wanted?.as) kept.set(wanted.as, file);
+      });
+    }
   }
   if (!page || page.isClosed()) {
-    page = (liveSession && (await visibleTab())) || (await browser.contexts()[0].newPage());
+    page = (liveSession && (await visibleTab())) || (await quietTab());
     ownsTab = !liveSession;
     page.on('request', (request) => {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
@@ -104,7 +152,8 @@ async function tab() {
     await page.evaluate(watchInPage).catch(() => {});
     page.on('download', (download) => void keepDownload(download));
   }
-  await page.bringToFront().catch(() => {});
+  // only a session the viewer started may put its tab in front of them
+  if (liveSession) await page.bringToFront().catch(() => {});
   return page;
 }
 
@@ -412,17 +461,36 @@ function figure(value) {
   return m[1] ? -n : n;
 }
 
-async function read(reading) {
+async function read(reading, onlySheet) {
   if ('value' in reading) return reading.value;
+  if ('add' in reading) {
+    let total = 0;
+    for (const part of reading.add) total += figure(await read(part, onlySheet)) ?? NaN;
+    for (const part of reading.minus ?? []) total -= figure(await read(part, onlySheet)) ?? NaN;
+    if (Number.isNaN(total)) throw new Error('one of the figures to add could not be read');
+    return Math.round(total * 100) / 100;
+  }
   if ('page' in reading) {
     // a control is read for what it is set to, not for every choice it offers
     const said = (await locate(reading.page).evaluate((el) => (el.tagName === 'SELECT' ? (el.selectedOptions[0]?.text ?? '') : el.tagName === 'INPUT' ? el.value : el.innerText), null, { timeout: 10000 })).trim();
     return reading.pick ? (new RegExp(reading.pick).exec(said)?.[1] ?? '') : said;
   }
   const wanted = new RegExp(`^${reading.sheet.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`);
-  const sheets = workbook(fileFor(reading.file)).filter((sheet) => wanted.test(sheet.name));
-  if (!sheets.length) throw new Error(`"${reading.file}" has no sheet called "${reading.sheet}"`);
-  const rows = sheets.flatMap((sheet) => sheet.rows).filter((row) => Object.entries(reading.where ?? {}).every(([column, value]) => row[column] === value));
+  const sheets = workbook(fileFor(reading.file)).filter((sheet) => wanted.test(sheet.name) && (!onlySheet || sheet.name === onlySheet));
+  if (!sheets.length) throw new Error(`"${reading.file}" has no sheet called "${onlySheet ?? reading.sheet}"`);
+  const keep = (row) => Object.entries(reading.where ?? {}).every(([column, value]) => row[column] === value);
+  if (reading.take === 'moved') {
+    // pairs are counted within a sheet, so a sheet's own first line starts its first pair
+    let cents = 0;
+    for (const sheet of sheets) {
+      sheet.rows.forEach((row, i) => {
+        if (i % 2 === 0 && keep(row)) cents += Math.round(((Number(row.CR) || 0) - (Number(row.DR) || 0)) * 100);
+      });
+    }
+    return cents / 100;
+  }
+  const rows = sheets.flatMap((sheet) => sheet.rows).filter(keep);
+  if (reading.take === 'count') return rows.length;
   const values = rows.map((row) => row[reading.column]).filter((value) => value !== undefined && value !== '');
   if (reading.take === 'first') return values[0] ?? '';
   if (reading.take === 'all') return [...new Set(values)].join(', ');
@@ -431,21 +499,41 @@ async function read(reading) {
 
 const shown = (value) => (typeof value === 'number' ? value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(value));
 
+/** Sheet names a file reading matches, for a check made once per sheet. */
+function sheetsOf(reading) {
+  const wanted = new RegExp(`^${reading.sheet.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`);
+  return workbook(fileFor(reading.file)).map((sheet) => sheet.name).filter((name) => wanted.test(name));
+}
+
 async function check(item) {
+  if (item.each && 'file' in item.read) {
+    let names;
+    try {
+      names = sheetsOf(item.read);
+    } catch (error) {
+      return [{ label: item.label, ok: false, got: `could not read: ${error.message.split('\n')[0]}`, want: '' }];
+    }
+    const out = [];
+    for (const name of names) out.push(...(await check({ ...item, each: false, label: `${item.label}, ${name}`, sheet: name })));
+    return out.length ? out : [{ label: item.label, ok: false, got: 'no sheet matched', want: '' }];
+  }
   try {
-    let got = await read(item.read);
-    let want = await read(item.equals);
+    let got = await read(item.read, item.sheet);
+    let want = await read(item.equals, 'file' in item.equals ? item.sheet : undefined);
     // when either side is a number, both are read as figures
     if (typeof got === 'number' || typeof want === 'number') {
       got = figure(got);
       want = figure(want);
-      if (got === null || want === null) return { label: item.label, ok: false, got: shown(got ?? 'no figure'), want: shown(want ?? 'no figure') };
+      if (got === null || want === null) return [{ label: item.label, ok: false, got: shown(got ?? 'no figure'), want: shown(want ?? 'no figure') }];
       const [a, b] = item.abs ? [Math.abs(got), Math.abs(want)] : [got, want];
-      return { label: item.label, ok: Math.abs(a - b) < 0.005, got: shown(got), want: shown(want) };
+      // a count reads as a count, not as money
+      const counting = [item.read, item.equals].some((r) => r.take === 'count');
+      const say = (n) => (counting ? n.toLocaleString('en-US') : shown(n));
+      return [{ label: item.label, ok: Math.abs(a - b) < 0.005, got: say(got), want: say(want) }];
     }
-    return { label: item.label, ok: String(got).trim().toLowerCase() === String(want).trim().toLowerCase(), got: shown(got), want: shown(want) };
+    return [{ label: item.label, ok: String(got).trim().toLowerCase() === String(want).trim().toLowerCase(), got: shown(got), want: shown(want) }];
   } catch (error) {
-    return { label: item.label, ok: false, got: `could not read: ${error.message.split('\n')[0]}`, want: '' };
+    return [{ label: item.label, ok: false, got: `could not read: ${error.message.split('\n')[0]}`, want: '' }];
   }
 }
 
@@ -524,8 +612,82 @@ const commands = {
   },
   async check({ items }) {
     const results = [];
-    for (const item of items) results.push(await check(item));
+    for (const item of items) results.push(...(await check(item)));
     return { results };
+  },
+  /**
+   * For building only: press a download button and keep the file without the browser ever
+   * starting a download, so nothing shows on the screen of whoever sits at that browser. Apps
+   * hand a file over by making a blob and clicking a link to it; this catches the blob as it is
+   * made and stops that one click, inside the page.
+   */
+  async capture({ target, as }) {
+    if (liveSession) throw new Refused('In a live session a download is your own click.');
+    const found = await ring(target);
+    await guard(found);
+    await clear();
+    const before = lastDownload?.at ?? 0;
+    await page.evaluate(() => {
+      if (window.__wagCatch) {
+        window.__wagCatch.on = true;
+        window.__wagCatch.got = null;
+        return;
+      }
+      const state = (window.__wagCatch = { on: true, got: null, blobs: new Map() });
+      const make = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (thing) => {
+        const address = make(thing);
+        if (state.on && thing instanceof Blob) state.blobs.set(address, thing);
+        return address;
+      };
+      const caught = (a) => {
+        if (!state.on || !a.hasAttribute('download') || !state.blobs.has(a.href)) return false;
+        state.got = { name: a.download, blob: state.blobs.get(a.href) };
+        return true;
+      };
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {
+        if (!caught(this)) click.call(this);
+      };
+      const dispatch = HTMLAnchorElement.prototype.dispatchEvent;
+      HTMLAnchorElement.prototype.dispatchEvent = function (event) {
+        return event.type === 'click' && caught(this) ? true : dispatch.call(this, event);
+      };
+      document.addEventListener(
+        'click',
+        (event) => {
+          const a = event.target instanceof Element ? event.target.closest('a[download]') : null;
+          if (a && caught(a)) event.preventDefault();
+        },
+        true
+      );
+    });
+    try {
+      await found.click({ timeout: 15000 });
+      const end = Date.now() + 90000;
+      while (Date.now() < end && !(await page.evaluate(() => Boolean(window.__wagCatch.got)))) {
+        if ((lastDownload?.at ?? 0) > before) throw new Error(`The browser downloaded ${lastDownload.name} itself; it was kept, but it was not caught quietly`);
+        await page.waitForTimeout(300);
+      }
+      const got = await page.evaluate(async () => {
+        if (!window.__wagCatch.got) return null;
+        const { name, blob } = window.__wagCatch.got;
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        return { name, data: btoa(text) };
+      });
+      if (!got) throw new Error('No file came back from that button');
+      const file = join(filesDir, `${as}__${got.name}`);
+      writeFileSync(file, Buffer.from(got.data, 'base64'));
+      kept.set(as, file);
+      kept.set(got.name, file);
+      // while building, this stands in for the person's own click on a My turn that waits for a file
+      lastDownload = { name: got.name, file, at: Date.now() };
+      return { did: `Kept ${got.name}`, file, name: got.name };
+    } finally {
+      await page.evaluate(() => (window.__wagCatch.on = false)).catch(() => {});
+    }
   },
   async screenshot({ as = `shot-${Date.now()}` }) {
     const file = join(filesDir, `${as}.png`);
@@ -606,7 +768,7 @@ const routes = {
     inTurn(async () => {
       await tab();
       const results = [];
-      for (const item of live.check ?? []) results.push(await check(item));
+      for (const item of live.check ?? []) results.push(...(await check(item)));
       return { ok: true, results };
     }),
   clear: () => inTurn(async () => ({ ok: true, cleared: Boolean(await clear()) })),
