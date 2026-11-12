@@ -579,6 +579,29 @@ const routes = {
         return { ok: false, why: error.message.split('\n')[0] };
       }
     }),
+  /**
+   * The recorded run: plays a step's `demo` (or its `show`) with no refusals, which is only safe
+   * because it refuses to start anywhere but a made-up copy served from this machine.
+   */
+  demo: ({ live, app }) =>
+    inTurn(async () => {
+      await tab();
+      const done = [];
+      try {
+        for (const action of live.demo ?? live.show ?? []) {
+          const to = 'go' in action ? (/^https?:/.test(action.go) ? action.go : `${appOverride ?? app ?? ''}${action.go}`) : page.url();
+          if (!isLocal(to)) throw new Refused('A recorded run only plays on a made-up copy on this machine, never on a real system.');
+          if ('click' in action) {
+            await (await ring(action.click)).click({ timeout: 15000 });
+            await clear();
+            done.push(`Clicked ${words(action.click)}`);
+          } else done.push(await act(action, app));
+        }
+        return { ok: true, done };
+      } catch (error) {
+        return { ok: false, done, refused: error instanceof Refused, why: error.message.split('\n')[0] };
+      }
+    }),
   check: ({ live }) =>
     inTurn(async () => {
       await tab();

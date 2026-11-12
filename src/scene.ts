@@ -262,6 +262,12 @@ export interface Live {
   turn?: { point: Target; says: string; until: Expect };
   /** Check: read the page or a file and say whether each pair matches */
   check?: LiveCheck[];
+  /**
+   * For the recorded video only: what plays where the viewer would have acted, on a made-up copy
+   * of the app. It may press anything, because nothing there is real, and for that reason the
+   * bridge only plays it on a page served from the same machine.
+   */
+  demo?: LiveAction[];
 }
 
 /** Words on a control that mean pressing it changes something. "Show me" refuses such a control. */

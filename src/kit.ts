@@ -1,6 +1,6 @@
 // Ready-made slides for walkthroughs. Each one is an ordinary slide made of the same boxes,
 // text and states as any other, so the player and the exporter need to know nothing about them.
-import { box, ellipse, image, path, slide, text, type Download, type Slide, type SlideTransition, type StateProps } from './scene';
+import { box, deck, ellipse, image, path, slide, text, type Deck, type DeckOptions, type Download, type Expect, type LiveAction, type LiveCheck, type Slide, type SlideTransition, type StateProps, type Target } from './scene';
 
 type Drafts = Parameters<typeof slide>[1];
 
@@ -252,4 +252,56 @@ export function shot(src: string, o: ShotOptions): Slide {
     },
     drafts
   );
+}
+
+export interface GuideStep {
+  /** a few words, shown as the step's heading and numbered for you */
+  title: string;
+  /** what the step is for, in a sentence or two, shown under the heading */
+  about?: string;
+  /** what is said when the step arrives */
+  say: string;
+  /** Show me: what the guide does on the page */
+  show?: LiveAction[];
+  /** My turn: the viewer's own click. `says` tells them what the click will do. */
+  mine?: { point: Target; says: string; until: Expect };
+  /** My turn for a file: the viewer clicks, the file lands in their Downloads, and checks can read it as `as` */
+  download?: { point: Target; says: string; file: string; as: string };
+  /** Check: pairs to read and compare */
+  check?: LiveCheck[];
+  /** for the recorded video: what plays on a made-up copy where the viewer would have acted */
+  demo?: LiveAction[];
+  name?: string;
+}
+
+/**
+ * A guide written as steps: say, show, my turn, check, download. One list gives three things: a
+ * guided session (each step's buttons drive the real page), a narrated deck (the same slides and
+ * lines without a browser), and a recorded video (the steps played on a made-up copy, paced by
+ * the narration). Each step becomes a slide laid out for you.
+ */
+export function guide(options: DeckOptions & { theme?: Theme }, steps: GuideStep[]): Deck {
+  const t = options.theme ?? dark;
+  const rise = { dy: 30, opacity: 0 };
+  /** steps that do something on the page are numbered; an opening or closing slide is not */
+  let number = 0;
+  const slides = steps.map((s, i) => {
+    const turn = s.download ? { point: s.download.point, says: s.download.says, until: { file: { like: s.download.file, as: s.download.as } } } : s.mine;
+    const live = s.show || turn || s.check || s.demo ? { show: s.show, turn, check: s.check, demo: s.demo } : undefined;
+    const lines = [
+      ...(s.show ? ['Show me: the guide does this step on the page'] : []),
+      ...(turn ? [`My turn: ${turn.says}`] : []),
+      ...(s.check ? [`Check: ${s.check.map((c) => c.label).join('; ')}`] : []),
+    ];
+    const title = live ? `${++number}. ${s.title}` : s.title;
+    return slide({ name: s.name ?? `step-${i + 1}`, title, bg: t.bg, stagger: 0.07, narration: s.say, live, handout: { intro: s.about ?? s.say, points: lines.map((line) => ({ text: line })) } }, [
+      text(title, { x: 80, y: 70, w: 1120, h: 70, fontSize: 46, weight: 800, color: t.ink, enter: rise }),
+      text(s.about ?? s.say, { x: 80, y: 156, w: 1080, h: 130, fontSize: 24, color: t.dim, enter: rise }),
+      ...lines.flatMap((line, n) => [
+        box({ x: 80, y: 310 + n * 100, w: 1120, h: 86, radius: 14, fill: t.panel, enter: rise }),
+        text(line, { x: 104, y: 310 + n * 100, w: 1072, h: 86, fontSize: 20, color: t.ink, valign: 'middle', enter: rise }),
+      ]),
+    ]);
+  });
+  return deck({ bg: t.bg, ...options }, slides);
 }

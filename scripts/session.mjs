@@ -14,13 +14,14 @@
 // (a Piper voice; default the medium voice under ~/.local/share/wag-voice), --pronounce FILE (a
 // JSON object of written form to spoken form), --label TEXT (shown on the console, such as
 // "PRIVATE: production data").
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { promisify } from 'node:util';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : fallback);
@@ -157,6 +158,74 @@ document.getElementById('mirrorBtn').onclick = (e) => { mirror = !mirror; e.targ
 fetch('/lines?key=' + key).then((r) => r.json()).then((old) => { old.forEach((l) => show(l, true)); new EventSource('/events?key=' + key).onmessage = (m) => show(JSON.parse(m.data)); });
 </script></body></html>`;
 
+// ---- recording ----------------------------------------------------------------------------------
+// "Record this": pictures of the driven tab a few times a second, plus the lines already kept with
+// their audio and times. Stopping turns them into a video, subtitles and a written walkthrough.
+
+const run = promisify(execFile);
+let recording = null;
+
+function startRecording() {
+  if (recording) return { ok: true, already: true };
+  const folder = join(dir, `recording-${String(Date.now()).slice(-8)}`);
+  mkdirSync(join(folder, 'frames'), { recursive: true });
+  recording = { folder, began: Date.now(), frames: [], from: count, busy: false };
+  recording.timer = setInterval(async () => {
+    if (recording.busy) return;
+    recording.busy = true;
+    const shot = await toBridge('cmd', { cmd: 'frame' });
+    if (recording && shot?.ok) {
+      const file = `frames/${String(recording.frames.length + 1).padStart(5, '0')}.jpg`;
+      writeFileSync(join(recording.folder, file), Buffer.from(shot.jpeg, 'base64'));
+      recording.frames.push({ file, t: (Date.now() - recording.began) / 1000 });
+    }
+    if (recording) recording.busy = false;
+  }, 400);
+  add({ who: 'note', text: 'Recording started.' });
+  return { ok: true, folder };
+}
+
+const clock = (t) => `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')},${String(Math.round((t % 1) * 1000)).padStart(3, '0')}`;
+
+async function stopRecording() {
+  if (!recording) return { ok: false, why: 'nothing is being recorded' };
+  const done = recording;
+  clearInterval(done.timer);
+  recording = null;
+  const length = (Date.now() - done.began) / 1000;
+  if (!done.frames.length) return { ok: false, why: 'no pictures of the page were taken' };
+  const offset = (done.began - began) / 1000;
+  const said = lines.filter((l) => l.n > done.from && l.who !== 'note').map((l) => ({ ...l, t: Math.max(0, l.t - offset - (l.seconds ?? 0) * 0) }));
+  // each picture is held until the next one
+  const list = done.frames.map((f, i) => `file '${f.file}'\nduration ${(((done.frames[i + 1]?.t ?? length) - f.t) || 0.4).toFixed(3)}`).join('\n');
+  writeFileSync(join(done.folder, 'frames.txt'), `${list}\nfile '${done.frames.at(-1).file}'\n`);
+  const spoken = said.filter((l) => l.audio);
+  const inputs = spoken.flatMap((l) => ['-i', join(dir, 'audio', l.audio)]);
+  const stamp = label ? `,drawtext=text='${label.replace(/[':]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '';
+  const sound = spoken.length
+    ? `;${spoken.map((l, i) => `[${i + 1}:a]adelay=${Math.round(l.t * 1000)}:all=1[a${i}]`).join(';')};${spoken.map((_, i) => `[a${i}]`).join('')}amix=inputs=${spoken.length}:normalize=0[a]`
+    : '';
+  const video = join(done.folder, 'session.mp4');
+  await run('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(done.folder, 'frames.txt'), ...inputs, '-filter_complex', `[0:v]fps=10,scale=1600:-2${stamp}[v]${sound}`, '-map', '[v]', ...(spoken.length ? ['-map', '[a]'] : []), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', length.toFixed(2), video], { cwd: done.folder });
+  writeFileSync(join(done.folder, 'session.srt'), spoken.map((l, i) => `${i + 1}\n${clock(l.t)} --> ${clock(l.t + (l.seconds ?? 3))}\n${l.text}\n`).join('\n'));
+  // the written walkthrough: what was asked, what was said, and the page as it looked when each line ended
+  const out = [`# Walkthrough of a live session, ${new Date(done.began).toLocaleString('en-US')}`, '', ...(label ? [`**${label}.** Not for sharing.`, ''] : [])];
+  mkdirSync(join(done.folder, 'pictures'), { recursive: true });
+  said.forEach((l, i) => {
+    if (l.who === 'you') return out.push(`## ${l.text}`, '');
+    out.push(l.text, '');
+    const at = l.t + (l.seconds ?? 0);
+    const frame = done.frames.findLast((f) => f.t <= at) ?? done.frames[0];
+    const picture = `pictures/${String(i + 1).padStart(3, '0')}.jpg`;
+    writeFileSync(join(done.folder, picture), readFileSync(join(done.folder, frame.file)));
+    out.push(`![The page at this point](${picture})`, '');
+  });
+  writeFileSync(join(done.folder, 'walkthrough.md'), out.join('\n'));
+  writeFileSync(join(done.folder, 'steps.json'), JSON.stringify(said, null, 1));
+  add({ who: 'note', text: `Recording saved: ${video}` });
+  return { ok: true, video, seconds: Math.round(length), walkthrough: join(done.folder, 'walkthrough.md'), subtitles: join(done.folder, 'session.srt'), private: Boolean(label) };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   if ((req.headers['x-wag-key'] ?? url.searchParams.get('key')) !== key()) {
@@ -172,6 +241,7 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) body += chunk;
     const live = /^\/live\/(\w+)$/.exec(url.pathname)?.[1];
     if (live) return json(await toBridge(live, JSON.parse(body || '{}')));
+    if (url.pathname === '/record') return json(JSON.parse(body || '{}').on ? startRecording() : await stopRecording().catch((error) => ({ ok: false, why: error.message.split('\n')[0] })));
     const { text } = JSON.parse(body || '{}');
     if (url.pathname === '/heard') return json({ ok: true, n: add({ who: 'you', text }).n });
     if (url.pathname === '/say') {

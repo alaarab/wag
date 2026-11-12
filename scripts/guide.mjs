@@ -10,6 +10,7 @@
 //   guide scroll "Tea refund"   |   guide close   |   guide clear   |   guide screenshot name
 //   guide turn "Correcting entry" --says "It downloads a workbook; nothing is saved" --file "correcting-entry*" --as entry
 //   guide check '<json list of checks>'
+//   guide record start   |   guide record stop      (a video, subtitles and a written walkthrough of the session)
 //   guide say "One or two sentences."      (shown as text and spoken)      guide heard "what the person asked"
 // A target is the words on the page. Forms: "css=#id", "role=button:Name". --in dialog narrows it; --last takes the last match.
 // It talks to scripts/session.mjs, which passes commands on to the bridge. GUIDE_SESSION is its address
@@ -55,7 +56,11 @@ const bodies = {
 };
 
 let answer;
-if (cmd === 'say' || cmd === 'heard') {
+if (cmd === 'record') {
+  // record start | record stop: the page, the voice and the words, made into a video and a written walkthrough
+  const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
+  answer = await fetch(`${session}/record`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ on: words[0] !== 'stop' }) }).then((r) => r.json(), () => ({ ok: false, why: 'the session console is not running' }));
+} else if (cmd === 'say' || cmd === 'heard') {
   // the talking half of the session: say shows the line and speaks it, heard notes what the person asked
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
   answer = await fetch(`${session}/${cmd}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ text: words.join(' ') }) }).then((r) => (r.ok ? r.json() : { ok: false, why: `session answered ${r.status}` }), () => ({ ok: false, why: 'the session console is not running' }));
@@ -68,7 +73,7 @@ if (cmd === 'say' || cmd === 'heard') {
   while (answer.ok && !answer.reached && Date.now() < end) answer = await post('turn', { live, again: true });
 } else if (bodies[cmd]) answer = await post('cmd', { cmd, ...bodies[cmd]() });
 else {
-  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn, say, heard`);
+  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn, say, heard, record`);
   process.exit(2);
 }
 console.log(JSON.stringify(answer, null, 1));
