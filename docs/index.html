@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>wag: slide decks written in code</title>
+<meta name="description" content="Slide decks written in code. They move, they talk, and they can walk someone through a real web page." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M12 40 C 26 30, 38 48, 52 34' stroke='%23fbbf24' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+:root {
+  --bg: #020617; --surface: #0b1224; --panel: #111a2e; --line: #1e293b; --line2: #334155;
+  --ink: #f8fafc; --dim: #94a3b8; --faint: #64748b;
+  --sky: #38bdf8; --amber: #fbbf24; --mint: #34d399; --violet: #a78bfa; --red: #f87171;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--sky); text-decoration: none; }
+a:hover { text-decoration: underline; }
+img, video { max-width: 100%; display: block; }
+
+/* top bar */
+.top { position: sticky; top: 0; z-index: 10; background: rgba(2,6,23,.82); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1240px; margin: 0 auto; padding: 0 28px; height: 60px; display: flex; align-items: center; gap: 28px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 800; font-size: 22px; letter-spacing: -.02em; }
+.brand:hover { text-decoration: none; }
+.brand svg { width: 34px; height: 14px; margin-top: 10px; }
+.top nav { display: flex; gap: 22px; font-size: 15px; flex: 1; }
+.top nav a { color: var(--dim); }
+.top nav a:hover { color: var(--ink); text-decoration: none; }
+.gh { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line2); border-radius: 999px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.gh:hover { border-color: var(--sky); text-decoration: none; }
+.gh svg { width: 17px; height: 17px; fill: currentColor; }
+
+/* hero */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+.hero::before { content: ""; position: absolute; width: 720px; height: 720px; right: -160px; top: -300px; border-radius: 50%; background: radial-gradient(circle, #172554 0%, rgba(23,37,84,0) 70%); pointer-events: none; }
+.hero-in { position: relative; max-width: 1240px; margin: 0 auto; padding: 84px 28px 72px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 56px; align-items: center; }
+.hero h1 { margin: 0; font-size: 96px; line-height: .95; letter-spacing: -.05em; font-weight: 800; }
+.hero h1 svg { display: block; width: 220px; height: 34px; margin: 8px 0 0 4px; }
+.hero h1 svg path { stroke-dasharray: 400; stroke-dashoffset: 400; animation: draw 1.1s .3s ease-out forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.lead { font-size: 26px; line-height: 1.35; margin: 26px 0 14px; color: var(--ink); font-weight: 600; letter-spacing: -.01em; }
+.hero p.sub { color: var(--dim); margin: 0 0 30px; font-size: 18px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 999px; font-weight: 700; font-size: 16px; }
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn.main { background: var(--sky); color: #0f172a; }
+.btn.alt { border: 1px solid var(--line2); color: var(--ink); }
+.btn.alt:hover { border-color: var(--sky); }
+.window { border-radius: 14px; border: 1px solid var(--line2); background: var(--surface); box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(56,189,248,.06); overflow: hidden; }
+.window .chrome { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.window .chrome i { width: 11px; height: 11px; border-radius: 50%; background: var(--line2); }
+.window .chrome span { margin-left: 10px; font: 12px var(--mono); color: var(--faint); }
+
+/* feature cards */
+.cards { max-width: 1240px; margin: 0 auto; padding: 56px 28px 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 26px 26px 22px; position: relative; overflow: hidden; }
+.card::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 4px; background: var(--c); }
+.card h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -.01em; }
+.card p { margin: 0; color: var(--dim); font-size: 16px; }
+.card .tag { font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
+
+/* docs body */
+.doc { max-width: 1240px; margin: 0 auto; padding: 40px 28px 100px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; }
+.toc { position: sticky; top: 84px; align-self: start; font-size: 14.5px; max-height: calc(100vh - 100px); overflow: auto; }
+.toc b { display: block; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 18px 0 8px; }
+.toc a { display: block; color: var(--dim); padding: 4px 0 4px 12px; border-left: 2px solid var(--line); }
+.toc a:hover { color: var(--ink); text-decoration: none; }
+.toc a.on { color: var(--sky); border-left-color: var(--sky); }
+main { min-width: 0; max-width: 860px; }
+main section { padding-top: 24px; }
+main h2 { font-size: 34px; letter-spacing: -.025em; margin: 40px 0 14px; line-height: 1.2; }
+main h2 .k { font: 600 13px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--sky); display: block; margin-bottom: 6px; }
+main h3 { font-size: 21px; margin: 34px 0 8px; letter-spacing: -.01em; }
+main p, main li { color: #cbd5e1; }
+main strong { color: var(--ink); }
+main ul { padding-left: 22px; }
+main li { margin: 6px 0; }
+code { font: .8em var(--mono); background: var(--panel); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; color: #e2e8f0; overflow-wrap: anywhere; }
+pre { position: relative; margin: 18px 0 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; overflow: auto; font: 14px/1.6 var(--mono); }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; color: #e2e8f0; }
+pre .copy { position: absolute; top: 10px; right: 10px; font: 600 12px var(--sans); color: var(--dim); background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 10px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+pre:hover .copy { opacity: 1; }
+.t-k { color: var(--violet); } .t-s { color: var(--mint); } .t-c { color: var(--faint); font-style: italic; } .t-n { color: var(--amber); } .t-f { color: var(--sky); }
+figure { margin: 22px 0 28px; }
+figure img, figure video { border-radius: 12px; border: 1px solid var(--line2); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+figcaption { color: var(--faint); font-size: 14.5px; margin-top: 10px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 15.5px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--faint); font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+td { color: #cbd5e1; }
+td:first-child { color: var(--ink); white-space: nowrap; }
+kbd { font: 600 13px var(--mono); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line2); border-bottom-width: 2px; background: var(--panel); color: var(--ink); }
+.note { border: 1px solid var(--line2); border-left: 4px solid var(--c, var(--sky)); background: var(--panel); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+.note p { margin: 0; }
+.note.safe { --c: var(--mint); }
+.note.warn { --c: var(--amber); }
+.buttons3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0 8px; }
+.buttons3 div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.buttons3 b { display: inline-block; font-size: 14px; padding: 4px 12px; border-radius: 8px; background: #1e293b; margin-bottom: 8px; }
+.buttons3 p { margin: 0; font-size: 15px; }
+.flow { display: flex; align-items: stretch; gap: 0; margin: 22px 0; flex-wrap: wrap; }
+.flow div { flex: 1; min-width: 150px; background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; padding: 14px 16px; font-size: 14.5px; color: var(--dim); }
+.flow div b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+.flow span { align-self: center; color: var(--sky); padding: 0 8px; font: 13px var(--mono); text-align: center; }
+footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; }
+footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+
+@media (max-width: 1000px) {
+  .hero-in { grid-template-columns: 1fr; padding-top: 56px; }
+  .hero h1 { font-size: 72px; }
+  .cards { grid-template-columns: 1fr; }
+  .doc { grid-template-columns: 1fr; }
+  .toc { display: none; }
+  .top nav { display: none; }
+  .pair, .buttons3 { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; }
+  td:first-child { white-space: normal; }
+  .flow span { width: 100%; padding: 4px 0; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .hero h1 svg path { animation: none; stroke-dashoffset: 0; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#">wag<svg viewBox="0 0 68 24"><path d="M3 15 C 20 4, 40 24, 65 8" stroke="#fbbf24" stroke-width="5" fill="none" stroke-linecap="round"/></svg></a>
+    <nav>
+      <a href="#start">Start</a>
+      <a href="#slides">Slides</a>
+      <a href="#walkthroughs">Walkthroughs</a>
+      <a href="#guided">Guided mode</a>
+      <a href="#live">Live guide</a>
+      <a href="#reference">Reference</a>
+    </nav>
+    <a class="gh" href="https://github.com/alaarab/wag"><svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-in">
+    <div>
+      <h1>wag<svg viewBox="0 0 220 34"><path d="M6 24 C 70 4, 130 34, 214 10" stroke="#fbbf24" stroke-width="8" fill="none" stroke-linecap="round"/></svg></h1>
+      <p class="lead">Slide decks written in code. They move, they talk, and they can walk someone through a real web page.</p>
+      <p class="sub">A deck is one TypeScript file. The player animates it with springs, reads it aloud in a voice that runs on your own machine, and in guided mode points at a live page in a browser you are already signed in to, without ever pressing anything that saves.</p>
+      <div class="actions">
+        <a class="btn main" href="#start">Get started</a>
+        <a class="btn alt" href="#guided">See guided mode</a>
+      </div>
+    </div>
+    <div class="window">
+      <div class="chrome"><i></i><i></i><i></i><span>localhost:5179/?deck=guide#page</span></div>
+      <video src="img/callouts.mp4" poster="img/callout.png" autoplay muted loop playsinline aria-label="A screenshot slide stepping through its numbered callouts"></video>
+    </div>
+  </div>
+</section>
+
+<div class="cards">
+  <div class="card" style="--c: var(--violet)">
+    <div class="tag">Decks</div>
+    <h3>Slides that move</h3>
+    <p>Elements spring between states on hover, click and drag. Builds, drawn strokes, morphing transitions, routes between slides, answers saved to Excel, and an export to PowerPoint.</p>
+  </div>
+  <div class="card" style="--c: var(--sky)">
+    <div class="tag">Walkthroughs</div>
+    <h3>Decks that talk</h3>
+    <p>Narration line by line in an offline voice, a timeline to jump around in, story slides for cause, effect and fix, screenshots with zooming callouts, and Word handouts.</p>
+  </div>
+  <div class="card" style="--c: var(--mint)">
+    <div class="tag">Guided mode</div>
+    <h3>Guides that drive a page</h3>
+    <p><b>Show me</b> does a step on the live page. <b>My turn</b> rings what to click and waits for you. <b>Check</b> reads the page or a downloaded workbook and says whether the figures agree.</p>
+  </div>
+</div>
+
+<div class="doc">
+<aside class="toc">
+  <b>Basics</b>
+  <a href="#start">Quick start</a>
+  <a href="#slides">A slide</a>
+  <a href="#can-do">What a slide can do</a>
+  <b>Walkthroughs</b>
+  <a href="#walkthroughs">Narration</a>
+  <a href="#player">The player</a>
+  <a href="#voice">The voice</a>
+  <a href="#story">Story slides</a>
+  <a href="#shot">Screenshots with callouts</a>
+  <a href="#files">Files and handouts</a>
+  <b>Driving a page</b>
+  <a href="#guided">Guided mode</a>
+  <a href="#guide-format">Writing a guide</a>
+  <a href="#bridge">Running the bridge</a>
+  <a href="#safety">What it will not do</a>
+  <a href="#live">Live guide</a>
+  <b>More</b>
+  <a href="#outside">Private decks</a>
+  <a href="#pptx">PowerPoint</a>
+  <a href="#reference">Reference</a>
+</aside>
+
+<main>
+
+<section id="start">
+  <h2><span class="k">Basics</span>Quick start</h2>
+  <pre><code class="sh">git clone https://github.com/alaarab/wag && cd wag
+npm install
+npm run dev              # http://localhost:5179 lists every deck
+npm run new my-deck      # decks/my-deck.ts, from a small starter</code></pre>
+  <p>Open a deck from the list and move with the arrow keys. Three decks ship with the repo, all about made-up things:</p>
+  <ul>
+    <li><code>demo</code>: what slides can do, from springs and drag to a full-slide animation.</li>
+    <li><code>guide</code>: a narrated walkthrough with a story slide, a screenshot with callouts and files to take away.</li>
+    <li><code>guided</code>: a guided deck that drives a made-up page, <code>public/guide/app.html</code>.</li>
+  </ul>
+  <pre><code class="sh">npm run make guide       # narration audio and Word handouts for a deck
+npm run build            # a static copy of the player and every deck, in dist/</code></pre>
+  <p>The build is plain files that any static file server can show. You need a recent Node. The offline voice needs Python and <code>ffmpeg</code>, and guided mode needs a Chromium browser (Chrome, Edge or Chromium).</p>
+</section>
+
+<section id="slides">
+  <h2>A slide</h2>
+  <pre><code class="ts">import { box, deck, slide } from 'wag';
+
+const dog = slide(
+  { states: { woof: { dog: { scale: 1.3, rotate: -6 }, bubble: { opacity: 1 } } } },
+  [
+    box({ id: 'dog', x: 500, y: 250, w: 280, h: 280, radius: 36, text: '🐶', hover: 'woof' }),
+    box({ id: 'bubble', x: 800, y: 210, w: 210, h: 84, radius: 42, text: 'Woof!', opacity: 0 }),
+  ]
+);
+
+export default deck({}, [dog]);</code></pre>
+  <p>The canvas is 1280 by 720. A slide is a small state machine: a state is a set of overrides keyed by element id, and the player springs between layouts with <a href="https://motion.dev">Motion</a>. Hovering the dog above switches on <code>woof</code>; moving away switches it off.</p>
+  <figure>
+    <img src="img/demo-title.png" alt="The demo deck's title slide: the word wag over a drawn yellow stroke, and four coloured buttons" loading="lazy" />
+    <figcaption>The first slide of <code>decks/demo.ts</code>. The stroke draws itself in, the circle drifts, and the buttons spring on hover and press.</figcaption>
+  </figure>
+  <p>The elements are <code>box</code>, <code>ellipse</code>, <code>text</code>, <code>image</code>, <code>video</code>, <code>path</code>, <code>field</code>, <code>choice</code> and <code>scene</code>, which hands you a DOM node to animate however you like.</p>
+</section>
+
+<section id="can-do">
+  <h3>What a slide can do</h3>
+  <table>
+    <tr><th>To</th><th>Write</th></tr>
+    <tr><td>Hover, press</td><td><code>hover: 'state'</code>, <code>whileHover: { scale: 1.05 }</code>, <code>press</code>, <code>whilePress</code></td></tr>
+    <tr><td>Click</td><td><code>click: 'state'</code> toggles a state</td></tr>
+    <tr><td>Drag</td><td><code>drag: true</code>, <code>'x'</code> or <code>'y'</code>; <code>snapBack: false</code> to stay where dropped</td></tr>
+    <tr><td>Entrances</td><td><code>enter: { dy: 60, opacity: 0 }</code>, with a slide <code>stagger</code></td></tr>
+    <tr><td>Looping motion</td><td><code>loop: { rotate: [-3, 3], duration: 0.5 }</code></td></tr>
+    <tr><td>Builds</td><td><code>steps: ['one', 'two']</code> on the slide</td></tr>
+    <tr><td>Drawn strokes</td><td><code>path('M6 20 C …', { enter: { draw: 0 } })</code></td></tr>
+    <tr><td>Transitions</td><td><code>transition: 'fade' | 'push' | 'zoom' | 'iris' | 'morph'</code></td></tr>
+    <tr><td>Routing</td><td><code>slide({ name, hidden })</code>, <code>click: { go: 'name' }</code>, also <code>next</code>, <code>prev</code>, <code>back</code> or a number</td></tr>
+    <tr><td>Answers</td><td><code>field(name, …)</code>, <code>choice(name, options, …)</code>, <code>click: { save: 'file' }</code> downloads them as .xlsx</td></tr>
+    <tr><td>Video</td><td><code>video('/clip.mp4', { repeat, sound })</code>, files in <code>public/</code></td></tr>
+    <tr><td>Free-form code</td><td><code>scene(options, (root, { animate, answers }) => { … })</code></td></tr>
+    <tr><td>Picking one out</td><td><code>shade: 'rgba(2,6,23,.55)'</code> dims the slide outside an element</td></tr>
+  </table>
+</section>
+
+<section id="walkthroughs">
+  <h2><span class="k">Walkthroughs</span>A deck that talks</h2>
+  <p>A walkthrough deck explains something on its own: it talks, points at parts of a screenshot, and hands out files. Give a slide <code>narration</code>, a list of plain sentences. The first is said when the slide arrives, and each later one after the matching step.</p>
+  <pre><code class="ts">slide({
+  title: 'The two items that block the close',
+  narration: [
+    'Two items block the close.',             // said when the slide arrives
+    'The first is biscuits on the tea budget.', // after step one
+    'The second is a refund on an old shelf.',  // after step two
+  ],
+  steps: ['first', 'second'],
+}, [...])</code></pre>
+  <p>With <strong>Auto</strong> on, the deck moves on when a line ends, so it plays through like a video; <code>deck({ auto: true })</code> starts that way. A slide with nothing to say waits for the viewer, and going back never talks. <code>deck({ pronounce: { 'Q&A': 'Q and A,' } })</code> changes how something is said without changing what is shown.</p>
+</section>
+
+<section id="player">
+  <h3>The player</h3>
+  <p>A deck with narration or files gets a bar under the slide, with a timeline across its top. Every spoken line is one mark on the timeline, as wide as the line takes to say, with gaps between slides. Click anywhere on it to jump there; hover a mark to see its slide and line. The clock counts time so far against the whole deck.</p>
+  <figure>
+    <img src="img/story.png" alt="A story slide with a timeline and three cards, and the player bar underneath with Back, Next, the timeline and the clock" loading="lazy" />
+    <figcaption>The player bar: Back and Next, the slide count and title, play and pause, say again, speed, Auto, Text, the clock and Files. The timeline runs above it.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Key</th><th>Does</th></tr>
+    <tr><td><kbd>→</kbd> <kbd>↓</kbd> <kbd>PgDn</kbd></td><td>Next step or slide (also the Next button, or the arrow at the right edge when the mouse moves)</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>PgUp</kbd></td><td>Back. Going back turns Auto off, so the deck stays where you went.</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Pause and carry on in a narrated deck; next everywhere else</td></tr>
+    <tr><td><kbd>P</kbd> <kbd>R</kbd></td><td>Play or pause the voice; replay the slide</td></tr>
+    <tr><td><kbd>A</kbd></td><td>Auto: waits about two seconds after each line, counting down on Next, then moves on</td></tr>
+    <tr><td><kbd>C</kbd></td><td>Text: shows the words being said</td></tr>
+    <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>First or last slide</td></tr>
+  </table>
+  <p>The speed button cycles through 1×, 1.25× and 0.85×. Browsers hold sound back until the first click or key press, so a deck opened cold shows a <strong>Start with sound</strong> button.</p>
+</section>
+
+<section id="voice">
+  <h3>The voice</h3>
+  <p><code>npm run make &lt;deck&gt;</code> speaks every line with <a href="https://github.com/OHF-Voice/piper1-gpl">Piper</a>, a voice that runs on your own machine, so the words go nowhere. Each audio file is named after its line, so only changed lines are spoken again. It also writes <code>wag.json</code>, which tells the player how long each line is; that is what sizes the timeline. Without the audio the player uses the browser's own voice, and with no voice at all it shows the words and waits about as long as reading them takes.</p>
+  <pre><code class="sh">python3 -m venv ~/.local/share/wag-voice/venv
+~/.local/share/wag-voice/venv/bin/pip install piper-tts
+~/.local/share/wag-voice/venv/bin/python -m piper.download_voices en_US-lessac-high \
+  --data-dir ~/.local/share/wag-voice/voices</code></pre>
+  <p><code>WAG_PIPER</code> and <code>WAG_VOICE</code> point at a different program or voice file.</p>
+</section>
+
+<section id="story">
+  <h3>Story slides</h3>
+  <p><code>story()</code> tells how something came up: a timeline across the top, then three cards that arrive one step at a time for what caused it, what it did and what fixes it.</p>
+  <pre><code class="ts">import { story } from 'wag';
+
+story({
+  title: 'How the snack budget went sideways',
+  timeline: [
+    { when: 'Spring', what: 'One budget per shelf' },
+    { when: 'Marzember 1', what: 'The shelves are renumbered', mark: true },
+    { when: 'Friday', what: 'The month closes' },
+  ],
+  cause: 'Receipts typed in by hand keep the old shelf number.',
+  effect: 'Biscuits show up on the tea budget.',
+  fix: 'One correcting line before Friday.',
+  narration: ['The shelves were renumbered.', 'The cause.', 'What it did.', 'And the fix.'],
+  handout: true,
+})</code></pre>
+</section>
+
+<section id="shot">
+  <h3>Screenshots with callouts</h3>
+  <p><code>shot()</code> shows a picture with numbered regions. The whole picture comes first with every region marked. Each step then zooms in on one region, dims the rest and shows its label, and its <code>say</code> line is the narration. Regions are in the picture's own pixels, so you can read them straight off the screenshot. <code>issue: true</code> marks a callout as a known problem.</p>
+  <pre><code class="ts">import { shot } from 'wag';
+
+shot('/guide/page.png', {
+  title: 'A screenshot with callouts',
+  size: [1600, 800],                       // the picture's own size
+  callouts: [
+    { at: [88, 190, 1480, 92], label: 'Three counts across the top', say: 'Three cards count the items.' },
+    { at: [1240, 134, 336, 42], label: 'The buttons are easy to miss', issue: true,
+      say: 'The filter and the two buttons sit tight under the heading.' },
+  ],
+})</code></pre>
+  <figure>
+    <img src="img/callout.png" alt="A callout zoomed in on three buttons, with a yellow ring, the label The buttons are easy to miss up here, and a Known issue tag" loading="lazy" />
+    <figcaption>Callout three of <code>decks/guide.ts</code>, marked as a known issue.</figcaption>
+  </figure>
+</section>
+
+<section id="files">
+  <h3>Files and handouts</h3>
+  <p><code>downloads</code> lists the files a slide offers, and the <strong>Files</strong> button in the bar lists them; <code>shot()</code> offers its picture by default. <code>handout: true</code> adds a Word document of the slide (title, picture and each point), and <code>npm run make</code> also writes one document of the whole deck. These need <code>deck({ assets: '/my-deck' })</code>, the folder under <code>public/</code> the made files go in. That folder's <code>audio/</code>, <code>handouts/</code> and <code>wag.json</code> are not committed.</p>
+</section>
+
+<section id="guided">
+  <h2><span class="k">Driving a page</span>Guided mode</h2>
+  <p>A guided deck walks someone through a real task on a real page. Each guided slide adds up to three buttons to the bar:</p>
+  <div class="buttons3">
+    <div><b>Show me</b><p>The deck does the step on the live page: goes to an address, rings something with a note, clicks, picks an option, downloads a file and keeps it.</p></div>
+    <div><b>My turn</b><p>The deck rings what to click, says plainly what the click will do, and waits until the page shows it happened. It never makes that click.</p></div>
+    <div><b>Check</b><p>The deck reads the page or a downloaded workbook and says whether each pair of figures matches, showing both when they do not.</p></div>
+  </div>
+  <pre><code class="ts">slide({
+  narration: 'Pick the month.',
+  live: {
+    show: [{ choose: 'Marzember', from: { role: 'combobox', name: 'Month' } }],
+    turn: {
+      point: { role: 'combobox', name: 'Month' },
+      says: 'Choose Marzember. It only changes what is shown.',
+      until: { url: 'month=marzember' },
+    },
+    check: [{
+      label: 'The open month',
+      read: { page: { css: '#read' }, pick: 'Open month: (\\w+)' },
+      equals: { value: 'Marzember' },
+    }],
+  },
+}, [...])</code></pre>
+  <div class="pair">
+    <figure>
+      <img src="img/showme-page.png" alt="A made-up page with a dialog; the amount 412.50 has a blue ring and a note saying The amount this entry has to move" loading="lazy" />
+      <figcaption><strong>Show me</strong> opened item 1 on the made-up page and ringed its amount.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/myturn-page.png" alt="The same dialog with a yellow ring around a red Post entry button and a note saying what the click will do" loading="lazy" />
+      <figcaption><strong>My turn</strong> on Post entry: rung, explained, and left for your own click.</figcaption>
+    </figure>
+  </div>
+  <figure>
+    <img src="img/check.png" alt="A guided slide with a Check panel listing three ticks: debits equal credits, the Check sheet says it balances, the entry ties to the amount on the page" loading="lazy" />
+    <figcaption><strong>Check</strong> after Show me downloaded the correcting entry: the workbook is added up and compared with the page.</figcaption>
+  </figure>
+  <p>A target is the words on the page, or <code>{ role, name }</code> the way a screen reader names a control, or <code>{ css }</code>; <code>within: 'dialog'</code> narrows it to the open dialog. A check reads from the page (<code>pick</code> is a pattern whose first group is the figure), from a column of a downloaded workbook (summed by default; also <code>all</code>, <code>first</code>, <code>count</code> or <code>moved</code>, with <code>where</code> to keep some rows and <code>*</code> in a sheet name to take several sheets), or a fixed value. Readings can be added together with <code>{ add, minus }</code>.</p>
+</section>
+
+<section id="guide-format">
+  <h3>Writing a guide</h3>
+  <p><code>guide()</code> is a shorter way to write a whole guided deck as a list of steps. Each step becomes a numbered slide laid out for you, with its title, what it is for, and what each of its buttons will do. Without a browser the same list plays as a narrated deck.</p>
+  <pre><code class="ts">import { guide } from 'wag';
+
+export default guide({ title: 'Post the snack correction', assets: '/snack', app: 'https://snacks.example' }, [
+  {
+    title: 'Open the page',
+    say: 'First, open the page.',
+    show: [{ go: '/watch' }, { point: 'Snack budget watch', note: 'This is the page.' }],
+  },
+  {
+    title: 'Pick the month',
+    say: 'Pick Marzember, or press Show me.',
+    show: [{ choose: 'Marzember', from: { role: 'combobox', name: 'Month' } }],
+    mine: {
+      point: { role: 'combobox', name: 'Month' },
+      says: 'It only changes what is shown.',
+      until: { url: 'month=marzember' },
+    },
+  },
+  {
+    title: 'Download the entry',
+    say: 'Download the correcting entry. This click is yours.',
+    download: {
+      point: { role: 'button', name: 'Correcting entry' },
+      says: 'It downloads a workbook. Nothing is saved.',
+      file: 'correcting-entry*',
+      as: 'entry',
+    },
+    check: [{
+      label: 'Debits equal credits',
+      read: { file: 'entry', sheet: 'Lines', column: 'DR' },
+      equals: { file: 'entry', sheet: 'Lines', column: 'CR' },
+    }],
+  },
+]);</code></pre>
+  <p>A step has <code>say</code>, and any of <code>show</code> (Show me), <code>mine</code> (My turn), <code>download</code> (My turn for a file: the click is yours and checks can then read the file as <code>as</code>) and <code>check</code>. <code>demo</code> lists what to play on a made-up copy of the page where the viewer would have acted, for a recorded run.</p>
+</section>
+
+<section id="bridge">
+  <h3>Running the bridge</h3>
+  <p>The driving is done by a small bridge, <code>scripts/live.mjs</code>. It connects to a browser that is already running, over the browser's debugging port, using <a href="https://playwright.dev">Playwright</a>. It needs only Node and Playwright, so the one file can be copied next to any Playwright install.</p>
+  <div class="flow">
+    <div><b>The deck</b>Show me, My turn and Check in the bar</div>
+    <span>HTTP<br>+ key</span>
+    <div><b>live.mjs</b>finds, rings, reads and checks; refuses anything that commits</div>
+    <span>CDP</span>
+    <div><b>The browser</b>started with <code>--remote-debugging-port</code></div>
+  </div>
+  <p><strong>For building and recordings</strong>, use a browser with no window. The bridge works in one tab of its own, keeps downloads in its own folder, and closes the tab when it stops:</p>
+  <pre><code class="sh">chromium --headless=new --remote-debugging-port=9333 --user-data-dir=/tmp/wag-browser &
+npm run build
+node scripts/live.mjs --serve dist
+# open http://127.0.0.1:5180/?deck=guided&key=$(cat /tmp/wag-live/bridge.token)</code></pre>
+  <p><strong>To watch it on your own screen</strong>, start the browser with a window and the bridge with <code>--live</code>. It then works in the tab you are looking at, and any download becomes your own click. <code>--downloads</code> is where your browser saves files, so a check can find the one you just downloaded:</p>
+  <pre><code class="sh">chromium --remote-debugging-port=9333 --user-data-dir=/tmp/wag-browser &
+node scripts/live.mjs --serve dist --live --downloads ~/Downloads</code></pre>
+  <p>Every start makes a new key, written to <code>bridge.token</code> in the bridge's folder; the deck passes it as <code>?key=</code>, and a request without it is refused. <code>deck({ app: 'https://the.app' })</code> is where <code>go</code> addresses start, and <code>--app &lt;address&gt;</code> sends them somewhere else, such as a practice copy of the page. Without the bridge the three buttons are off and the deck still plays.</p>
+  <p>While writing a deck, run the bridge without <code>--serve</code> and start the dev server with <code>WAG_LIVE=http://127.0.0.1:5180 npm run dev</code>.</p>
+</section>
+
+<section id="safety">
+  <h3>What it will not do</h3>
+  <div class="note safe"><p>The rules live in the bridge, not in the deck, so a mistake in a deck cannot get past them.</p></div>
+  <ul>
+    <li><strong>It never presses anything that commits.</strong> Before every click the bridge reads the real control's label off the page and refuses one that starts with save, post, approve, submit, delete, send, remove, reject, confirm, apply, run, import, sync, void, reverse, pay, create, update, mark, undo, close the period or reopen (the list is <code>COMMITS</code> in <code>src/scene.ts</code>). <code>slide()</code> also rejects such a Show me step when the deck is built. Those steps are My turn only, and My turn has to say what the click will do.</li>
+    <li><strong>It refuses dialog buttons it cannot classify</strong>, and says why.</li>
+    <li><strong>On a page that is not on this machine, a click may only read.</strong> While the bridge is clicking, anything else the page tries to send is stopped, and the step is handed back to you as yours.</li>
+    <li><strong>It leaves a browser with a window alone</strong> unless the person at it started a live session with <code>--live</code>.</li>
+    <li><strong>Every command and every refusal goes to a log</strong>, <code>bridge.log</code>, next to the key.</li>
+  </ul>
+  <p>An app that reads with POST can list those paths with <code>--reads /api/search,/api/report</code>.</p>
+</section>
+
+<section id="live">
+  <h3>Live guide</h3>
+  <p>A guided deck follows a script. A live session is for questions: a person and an assistant share one browser tab, and the assistant points, reads and talks through one small command, <code>guide</code>. The same bridge enforces the same rules.</p>
+  <div class="flow">
+    <div><b>Assistant</b>runs the <code>guide</code> command</div>
+    <span>HTTP<br>+ key</span>
+    <div><b>session.mjs</b>voice, transcript, console page, recording</div>
+    <span>stdio<br>or ssh</span>
+    <div><b>live.mjs --stdio</b>listens on no port at all</div>
+    <span>CDP</span>
+    <div><b>The browser</b>the tab you are looking at</div>
+  </div>
+  <pre><code class="sh">node scripts/session.mjs --dir ~/.cache/wag/session \
+  --bridge "node scripts/live.mjs --stdio --live"
+# console at http://127.0.0.1:5191/console
+
+alias guide='node scripts/guide.mjs'
+guide highlight "412.50" --note "This is the amount to move"
+guide say "This is the amount the entry has to move."</code></pre>
+  <p><code>session.mjs</code> starts the bridge itself and is the only thing that can talk to it. The bridge can run on another machine through ssh, since all it needs is its input and output. The session keeps a Piper voice loaded so a line starts speaking in a fraction of a second, writes a transcript, and serves a console page that shows each line, plays it and can mirror the driven tab. <code>--deck dist</code> also serves a built deck, so its buttons work in the same session.</p>
+  <table>
+    <tr><th>Command</th><th>Does</th></tr>
+    <tr><td><code>where</code></td><td>The address, the open dialog and the viewer's last few clicks</td></tr>
+    <tr><td><code>goto</code>, <code>find</code>, <code>read</code></td><td>Go to an address; find text; read the open dialog or the page</td></tr>
+    <tr><td><code>highlight</code>, <code>scroll</code>, <code>clear</code></td><td>Ring something with a note; bring it into view; take the rings away</td></tr>
+    <tr><td><code>click</code>, <code>choose</code>, <code>close</code></td><td>Look-only clicks, picking an option, closing a dialog</td></tr>
+    <tr><td><code>turn</code></td><td>My turn: ring a control, say what it does, wait for the viewer (or their download)</td></tr>
+    <tr><td><code>check</code></td><td>Run checks, in the same format as a deck</td></tr>
+    <tr><td><code>say</code>, <code>heard</code></td><td>Speak a line and show it; note what the person asked</td></tr>
+    <tr><td><code>screenshot</code>, <code>record</code></td><td>A picture of the tab; start or stop a recording (video, subtitles and a written walkthrough)</td></tr>
+  </table>
+  <p>Any assistant that can run a shell command can be the guide. Allow it to run <code>guide</code> and nothing else, and give it a short map of the page.</p>
+</section>
+
+<section id="outside">
+  <h2><span class="k">More</span>Decks outside the repo</h2>
+  <p>A deck made from private material should not sit in this repo. Set <code>WAG_DECKS</code> to a folder elsewhere: its <code>*.ts</code> files are listed and played with the repo's own, and its <code>public/</code> folder is served the same way.</p>
+  <pre><code class="sh">WAG_DECKS=~/private-decks npm run dev
+WAG_DECKS=~/private-decks npm run make my-deck
+WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
+</section>
+
+<section id="pptx">
+  <h3>PowerPoint export</h3>
+  <p>The start page has a <strong>Download .pptx</strong> button for each deck. PowerPoint cannot run the interactions, so they are translated: entrances and builds become native animations with the springs baked into keyframes, and hover and click states become hidden slides joined by Morph and reached through mouse-over and click actions.</p>
+  <p>Not carried over: <code>whileHover</code> and press tweaks, drag, loops, scenes, video, working fields, narration, shades, downloads and live steps. The file opens in PowerPoint without repair, but how it plays in a live slideshow has not been checked.</p>
+</section>
+
+<section id="reference">
+  <h3>Reference</h3>
+  <table>
+    <tr><th>Setting</th><th>For</th></tr>
+    <tr><td><code>WAG_DECKS</code></td><td>A folder of decks outside the repo, with its own <code>public/</code></td></tr>
+    <tr><td><code>WAG_OUT</code></td><td>Where <code>npm run build</code> writes (default <code>dist/</code>)</td></tr>
+    <tr><td><code>WAG_LIVE</code></td><td>The bridge's address, for the dev server to pass <code>/live</code> requests on</td></tr>
+    <tr><td><code>WAG_PIPER</code>, <code>WAG_VOICE</code></td><td>The Piper program and voice file for <code>npm run make</code></td></tr>
+    <tr><td><code>GUIDE_SESSION</code></td><td>The session's address for <code>guide</code> (default <code>http://127.0.0.1:5191</code>)</td></tr>
+    <tr><td><code>GUIDE_KEY_FILE</code></td><td>Where the session wrote its key (default <code>~/.cache/wag/bridge.token</code>)</td></tr>
+    <tr><td><code>GUIDE_BRIDGE</code></td><td>Point <code>guide</code> straight at a bridge that listens by itself</td></tr>
+  </table>
+  <table>
+    <tr><th>File</th><th>What it is</th></tr>
+    <tr><td><code>src/scene.ts</code></td><td>The deck format and its builders</td></tr>
+    <tr><td><code>src/kit.ts</code></td><td>Ready-made slides: <code>story</code>, <code>shot</code>, <code>guide</code>, and the <code>dark</code> and <code>light</code> themes</td></tr>
+    <tr><td><code>src/player.ts</code></td><td>The browser player, with the bar and the timeline</td></tr>
+    <tr><td><code>src/pptx.ts</code></td><td>The .pptx exporter</td></tr>
+    <tr><td><code>app/</code></td><td>The page that lists and plays decks</td></tr>
+    <tr><td><code>decks/</code></td><td>One file per deck</td></tr>
+    <tr><td><code>scripts/make.mjs</code></td><td>Narration audio, Word handouts and <code>wag.json</code></td></tr>
+    <tr><td><code>scripts/live.mjs</code></td><td>The bridge that drives a browser</td></tr>
+    <tr><td><code>scripts/session.mjs</code>, <code>guide.mjs</code>, <code>voice.py</code></td><td>The live guide: session, command and warm voice</td></tr>
+    <tr><td><code>spike/</code></td><td>The script that first tested which animation XML PowerPoint accepts</td></tr>
+  </table>
+  <div class="note warn"><p>wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.</p></div>
+</section>
+
+</main>
+</div>
+
+<footer><div><span>wag: slide decks written in code.</span><span>Everything in these pictures is made up, including the page.</span></div></footer>
+
+<script>
+// a small highlighter for the code blocks: comments, strings, keywords, numbers, called names
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+const KEYWORDS = 'import|from|export|default|const|let|await|async|function|return|new|true|false|if|else';
+for (const code of document.querySelectorAll('pre code')) {
+  const sh = code.classList.contains('sh');
+  const rule = sh
+    ? /(#[^\n]*)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")|(\$\([^)]*\))|(?<![\w-])(--?[a-z][\w-]*)/g
+    : new RegExp(String.raw`(\/\/[^\n]*)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|\x60(?:[^\x60\\]|\\.)*\x60)|\b(${KEYWORDS})\b|\b(\d+(?:\.\d+)?)\b|\b([a-z]\w*)(?=\()`, 'g');
+  const text = code.textContent;
+  let html = '', at = 0;
+  for (const m of text.matchAll(rule)) {
+    html += esc(text.slice(at, m.index));
+    const [whole, comment, string, a, b, call] = m;
+    const cls = comment ? 't-c' : string ? 't-s' : sh ? (a ? 't-f' : 't-k') : a ? 't-k' : b ? 't-n' : 't-f';
+    html += `<span class="${cls}">${esc(whole)}</span>`;
+    at = m.index + whole.length;
+  }
+  code.innerHTML = html + esc(text.slice(at));
+  const copy = document.createElement('button');
+  copy.className = 'copy';
+  copy.textContent = 'Copy';
+  copy.onclick = async () => {
+    await navigator.clipboard.writeText(text);
+    copy.textContent = 'Copied';
+    setTimeout(() => (copy.textContent = 'Copy'), 1400);
+  };
+  code.parentElement.append(copy);
+}
+// the contents list follows the section being read
+const links = new Map([...document.querySelectorAll('.toc a')].map((a) => [a.getAttribute('href').slice(1), a]));
+const seen = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    links.forEach((a) => a.classList.remove('on'));
+    links.get(e.target.id)?.classList.add('on');
+  }
+}, { rootMargin: '-80px 0px -70% 0px' });
+document.querySelectorAll('main section[id]').forEach((s) => seen.observe(s));
+</script>
+</body>
+</html>

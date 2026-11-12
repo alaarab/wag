@@ -1,28 +1,35 @@
 # wag
 
-Slide decks written in code that move and respond. A deck is a TypeScript file; the browser player runs it with [Motion](https://motion.dev) springs, and slides can react to hover, click and drag, step through builds, route to each other, collect answers, and play video or free-form animation code.
+**Slide decks written in code. They move, they talk, and they can walk someone through a real web page.**
 
-This is an early prototype. It was checked by hand in a browser and has no automated tests yet.
+A deck is one TypeScript file. The player animates it with [Motion](https://motion.dev) springs and reads it aloud in a voice that runs on your own machine. In guided mode it points at a live page in a browser you are already signed in to, and it never presses anything that saves.
+
+<p align="center"><img src="docs/img/callouts.gif" alt="A screenshot slide stepping through its numbered callouts, with the player bar and timeline underneath" width="820"></p>
+
+**[Read the docs page](docs/index.html)** (open it from a clone, or at `http://localhost:5179/docs/` while `npm run dev` is running).
+
+| | |
+|---|---|
+| **Slides that move** | Elements spring between states on hover, click and drag. Builds, drawn strokes, morphing transitions, routes between slides, answers saved to Excel, and an export to PowerPoint. |
+| **Decks that talk** | Narration line by line in an offline voice, a timeline to jump around in, story slides for cause, effect and fix, screenshots with zooming callouts, and Word handouts. |
+| **Guides that drive a page** | **Show me** does a step on the live page. **My turn** rings what to click and waits for you. **Check** reads the page or a downloaded workbook and says whether the figures agree. |
 
 ## Quick start
 
 ```sh
 npm install
-npm run dev          # http://localhost:5179 lists the decks
-npm run new my-deck  # creates decks/my-deck.ts from a starter
+npm run dev              # http://localhost:5179 lists every deck
+npm run new my-deck      # decks/my-deck.ts, from a small starter
+npm run make guide       # narration audio and Word handouts for a deck
+npm run build            # a static copy of the player and every deck, in dist/
 ```
 
-Arrow keys move between slides and builds. `R` replays the current slide.
-
-```sh
-npm run make my-deck # narration audio and Word handouts for a guided deck (see below)
-npm run build        # a static copy of the player and every deck, in dist/
-```
+Three decks ship with the repo, all about made-up things: `demo` (what slides can do), `guide` (a narrated walkthrough) and `guided` (a deck that drives a made-up page, `public/guide/app.html`).
 
 ## A slide
 
 ```ts
-import { box, deck, slide, text } from 'wag';
+import { box, deck, slide } from 'wag';
 
 const dog = slide(
   { states: { woof: { dog: { scale: 1.3, rotate: -6 }, bubble: { opacity: 1 } } } },
@@ -35,11 +42,9 @@ const dog = slide(
 export default deck({}, [dog]);
 ```
 
-The canvas is 1280 x 720. A slide is a small state machine: a state is a set of overrides keyed by element id, and the player springs between layouts.
+The canvas is 1280 by 720. A slide is a small state machine: a state is a set of overrides keyed by element id, and the player springs between layouts.
 
-## What an element or slide can do
-
-| | How |
+| To | Write |
 |---|---|
 | Hover, press | `hover: 'state'`, `whileHover: { scale: 1.05 }`, `press`, `whilePress` |
 | Click | `click: 'state'` toggles a state |
@@ -48,28 +53,25 @@ The canvas is 1280 x 720. A slide is a small state machine: a state is a set of 
 | Looping motion | `loop: { rotate: [-3, 3], duration: 0.5 }` |
 | Builds | `steps: ['one', 'two']` on the slide |
 | Drawn strokes | `path('M6 20 C …', { enter: { draw: 0 } })` |
-| Slide transitions | `transition: 'fade' \| 'push' \| 'zoom' \| 'iris' \| 'morph'` |
+| Transitions | `transition: 'fade' \| 'push' \| 'zoom' \| 'iris' \| 'morph'` |
 | Routing | `slide({ name, hidden })`, `click: { go: 'name' }` (also `next`, `prev`, `back`, a number) |
-| Collecting answers | `field(name, …)`, `choice(name, options, …)`, `click: { save: 'file' }` downloads an .xlsx |
+| Answers | `field(name, …)`, `choice(name, options, …)`, `click: { save: 'file' }` downloads an .xlsx |
 | Video | `video('/clip.mp4', { repeat, sound })`, files in `public/` |
 | Free-form code | `scene(options, (root, { animate, answers }) => { … })` |
 | Narration | `slide({ narration: ['said on arrival', 'said after step 1'] })` |
-| A story of cause, effect and fix | `story({ title, timeline, cause, effect, fix })` |
-| A screenshot with callouts | `shot('/pic.png', { size, callouts: [{ at, label, say }] })` |
+| Cause, effect and fix | `story({ title, timeline, cause, effect, fix })` |
+| A screenshot with callouts | `shot('/pic.png', { size, callouts: [{ at, label, say, issue }] })` |
 | Files to take away | `slide({ downloads: [{ label, href }], handout: true })` |
-| Picking an element out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside it |
+| A whole guide as steps | `guide(options, [{ title, say, show, mine, download, check }])` |
+| Picking one out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside an element |
 
-`decks/demo.ts` uses the first twelve, `decks/scenes/film.ts` is a full-slide scene, `decks/guide.ts` is a narrated walkthrough and `decks/guided.ts` drives a page.
+## Walkthroughs
 
-## Walkthrough decks
+<img src="docs/img/story.png" alt="A story slide with a timeline and three cards, and the player bar underneath" width="820">
 
-A deck that walks someone through something: it talks, points at regions of a screenshot, and hands out files. A deck with narration or downloads gets a bar under the slide: Back and Next, play and pause, say again, speed, Auto, Text, Files, and a strip of every step in the deck, sized by how long each is spoken, with the time so far. Click the strip to jump; big arrows at the sides appear when the mouse moves. Arrow keys move; in a narrated deck Space pauses and carries on, `A` switches Auto, `C` shows the words being said. Auto waits about two seconds after each line, with a countdown on Next, and pressing Back turns it off.
+A deck with narration gets a bar under the slide: Back and Next, play and pause, say again, speed, Auto, Text and Files. Across its top runs a timeline with one mark per spoken line, as wide as the line takes to say; click it to jump. Arrow keys move, Space pauses, `A` switches Auto (it waits about two seconds after each line, and Back turns it off), `C` shows the words.
 
-**Narration.** `narration` is a list of plain sentences: the first is said when the slide arrives, each later one after the matching step. With Auto on (`deck({ auto: true })` starts that way) the deck moves on when a line ends, so it plays through like a video; a slide with nothing to say waits for the viewer. Going back never talks. `deck({ pronounce: { 'Q&A': 'Q and A,' } })` changes how something is said without changing what is shown.
-
-`npm run make <deck>` turns every line into an audio file with [Piper](https://github.com/OHF-Voice/piper1-gpl), a voice that runs on your own machine, so the words go nowhere. Each file is named after its line, so only changed lines are spoken again. Without those files, or for a line that has none, the player uses the browser's own voice, and with no voice at all it shows the words and waits about as long as reading them takes. Browsers hold sound back until the first click or key press, so a deck opened cold shows a "Start with sound" button.
-
-To set Piper up once:
+`npm run make <deck>` speaks every line with [Piper](https://github.com/OHF-Voice/piper1-gpl), an offline voice, so the words go nowhere. Without the audio the browser's own voice reads the lines. To set Piper up once:
 
 ```sh
 python3 -m venv ~/.local/share/wag-voice/venv
@@ -77,17 +79,17 @@ python3 -m venv ~/.local/share/wag-voice/venv
 ~/.local/share/wag-voice/venv/bin/python -m piper.download_voices en_US-lessac-high --data-dir ~/.local/share/wag-voice/voices
 ```
 
-`WAG_PIPER` and `WAG_VOICE` point at a different program or voice file. `ffmpeg` is needed too.
+`ffmpeg` is needed too. Made files go in the folder the deck names with `deck({ assets: '/my-deck' })`, under `public/`; its `audio/`, `handouts/` and `wag.json` are not committed.
 
-**Story.** `story()` is a slide for how something came up: a timeline across the top, then three cards that arrive one step at a time for what caused it, what it did and what fixes it.
+## Guided mode
 
-**Screenshot with callouts.** `shot()` shows a picture with numbered regions. The whole picture comes first with every region marked; each step zooms in on one, dims the rest and shows that callout's label, and its `say` line is the narration. Regions are in the picture's own pixels, so they can be read straight off the screenshot. `issue: true` marks a callout as a known problem.
-
-**Files.** `downloads` lists files a slide offers, and `shot()` offers its picture by default. `handout: true` adds a Word document of the slide (title, picture, and each point), which `npm run make` writes along with one document of the whole deck. These need `deck({ assets: '/my-deck' })`, the folder under `public/` the made files go in. That folder's `audio/`, `handouts/` and `wag.json` are not committed.
-
-## Guided mode: a deck that drives a real page
-
-A guided slide has up to three buttons in the bar, each one part of `live`:
+<table><tr>
+<td><img src="docs/img/showme-page.png" alt="Show me: the amount on a made-up page ringed in blue with a note"></td>
+<td><img src="docs/img/myturn-page.png" alt="My turn: the Post entry button ringed in yellow, with what the click will do"></td>
+</tr><tr>
+<td align="center"><b>Show me</b> opens the item and rings its amount</td>
+<td align="center"><b>My turn</b> rings Post entry and waits for your click</td>
+</tr></table>
 
 ```ts
 slide({
@@ -100,50 +102,46 @@ slide({
 }, [...])
 ```
 
-- **Show me** does the step on the live page: `go` to an address, `point` at something (a ring and a note), `click`, `choose` an option, `download` a file and keep it under a name, `open` that file, `press` Escape, `wait` for a state.
-- **My turn** rings what to click, shows `says` (what the click will do, in plain words) and waits until the page is as `until` describes. The deck never makes that click.
-- **Check** reads the page or a downloaded workbook and says whether each pair matches, showing both figures when they do not: a figure on the page against a column total in a sheet, debits against credits, one part of the page against another.
-
-The driving is done by a small bridge, `scripts/live.mjs`, which talks to a browser that is already open and signed in, over its debugging port:
+The driving is done by a small bridge, `scripts/live.mjs`, which uses Playwright to connect to a browser that is already running, over its debugging port. Use a browser with no window for building (the bridge works in a tab of its own and keeps downloads in its own folder):
 
 ```sh
-chromium --remote-debugging-port=9333 &        # or Edge or Chrome, started the same way
+chromium --headless=new --remote-debugging-port=9333 --user-data-dir=/tmp/wag-browser &
 npm run build
-node scripts/live.mjs --serve dist             # then open http://127.0.0.1:5180/?deck=guided
+node scripts/live.mjs --serve dist
+# open http://127.0.0.1:5180/?deck=guided&key=$(cat /tmp/wag-live/bridge.token)
 ```
 
-It opens one tab of its own and closes it when it stops. `deck({ app: 'https://the.app' })` is where `go` addresses start; `--app <address>` sends them somewhere else, such as a practice copy of the page. Without the bridge the three buttons are off and the deck still plays. While writing a deck, run the bridge without `--serve` and start the dev server with `WAG_LIVE=http://127.0.0.1:5180 npm run dev`. The bridge needs only Node and Playwright, so the one file can be copied next to any Playwright install.
+To watch it on your own screen, start the browser with a window and add `--live`: the bridge then works in the tab you are looking at, and downloads become your own click.
 
-**What it will not do.** Show me never presses a control whose label says it saves, posts, approves, submits, deletes or sends. `slide()` rejects such a step when the deck is built, and the bridge checks the real control on the page again before every click and refuses, so a wrong label in a deck does not get past it. Those steps are My turn only. The bridge answers only pages on the same machine, and after each Show me the panel lists anything the page itself sent that was not a plain read.
+**What it will not do.** Before every click the bridge reads the real control's label and refuses anything that saves, posts, approves, submits, deletes, sends or otherwise commits (`COMMITS` in `src/scene.ts`), and any dialog button it cannot classify. On a page that is not on this machine, a click may only read: anything else the page tries to send is stopped. Every start makes a new key, and every command and refusal goes to `bridge.log`. Those steps are My turn only, and My turn has to say what the click will do.
 
-`decks/guided.ts` is a guided deck over a made-up page, `public/guide/app.html`.
+**Live guide.** `scripts/session.mjs` and the `guide` command let an assistant and a person share one tab: the assistant rings things, reads the page and talks (`guide highlight`, `guide read`, `guide say`), through the same bridge and the same rules. See the [docs page](docs/index.html#live).
 
-## Decks outside the repo
+## Private decks
 
-A deck made from private material should not sit in this repo. Set `WAG_DECKS` to a folder elsewhere: its `*.ts` files are listed and played with the repo's own, and its `public/` folder is served the same way.
+A deck made from private material should not sit in this repo. Point `WAG_DECKS` at a folder elsewhere; its decks are listed with the repo's own and its `public/` is served the same way.
 
 ```sh
 WAG_DECKS=~/private-decks npm run dev
-WAG_DECKS=~/private-decks npm run make my-deck
 WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build
 ```
 
-`WAG_OUT` puts the static build somewhere else too. The build is plain files: any static file server can show it.
+## PowerPoint
 
-## PowerPoint export
-
-The start page has a **Download .pptx** button per deck. PowerPoint cannot run the interactions, so they are translated: entrances and builds become native animations with the springs baked into keyframes, and hover and click states become hidden slides joined by Morph and reached through mouse-over and click actions.
-
-Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video, working fields, narration, shades, downloads and live steps. The exported file opens in PowerPoint without repair, but how it plays in a live slideshow has not been verified.
+The start page has a **Download .pptx** button for each deck. Entrances and builds become native animations, and hover and click states become hidden slides joined by Morph. Drag, loops, scenes, video, narration and live steps are not carried over.
 
 ## Layout
 
 - `src/scene.ts`: the deck format and its builders
-- `src/kit.ts`: ready-made slides (`story`, `shot`) built from the same elements
-- `src/player.ts`: the browser player, with the narration bar
+- `src/kit.ts`: ready-made slides (`story`, `shot`, `guide`) and themes
+- `src/player.ts`: the browser player, with the bar and the timeline
 - `src/pptx.ts`: the .pptx exporter
-- `app/`: the dev page that lists and plays decks
+- `app/`: the page that lists and plays decks
 - `decks/`: one file per deck
-- `scripts/make.mjs`: writes a guided deck's audio and Word handouts
-- `scripts/live.mjs`: the bridge that drives a real browser for Show me, My turn and Check
-- `spike/`: the script that first tested which hand-written animation XML PowerPoint accepts
+- `docs/`: the docs page and its pictures
+- `scripts/make.mjs`: narration audio and Word handouts
+- `scripts/live.mjs`: the bridge that drives a browser
+- `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
+- `spike/`: the script that first tested which animation XML PowerPoint accepts
+
+wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.
