@@ -90,6 +90,19 @@ const BAR_CSS = `
 .wag-bar-live .wait::before{content:"\\2026";color:#fbbf24}
 .wag-bar-live .note{color:#94a3b8}
 .wag-bar-live small{color:#94a3b8}
+.wag-bar button.wag-ask{background:#1e293b;padding:0 12px}
+.wag-bar button.wag-ask:hover{background:#334155}
+.wag-bar button.wag-ask[aria-pressed=true]{background:#38bdf8;color:#0f172a}
+.wag-bar-ask{display:none;position:absolute;right:14px;bottom:58px;width:min(460px,calc(100% - 28px));max-height:56vh;flex-direction:column;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45;user-select:text}
+.wag-bar-ask-log{overflow:auto;padding:12px 14px 2px}
+.wag-bar-ask-log p{margin:0 0 10px}
+.wag-bar-ask-log .you{color:#94a3b8}
+.wag-bar-ask-log .you::before{content:"You: ";font-weight:600}
+.wag-bar-ask-log .note{color:#fbbf24}
+.wag-bar-ask form{display:flex;gap:8px;padding:10px;border-top:1px solid #1e293b}
+.wag-bar-ask input{flex:1;min-width:0;height:36px;padding:0 12px;border-radius:8px;border:1px solid #334155;background:#020617;color:#f8fafc;font:inherit}
+.wag-bar-ask input:focus{outline:2px solid #38bdf8;outline-offset:0}
+.wag-bar-ask form button,.wag-bar-ask form button:hover:not(:disabled){background:#38bdf8;color:#0f172a;padding:0 14px}
 .wag-bar button.wag-nav{padding:0 12px;background:#1e293b}
 .wag-bar button.wag-nav:hover{background:#334155}
 .wag-bar button.wag-counting{position:relative;overflow:hidden}
@@ -215,6 +228,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
         .catch(() => undefined)
     : Promise.resolve();
   const audio = new Audio();
+  /** an answer from Ask is heard through its own player, so the narration can be picked up where it was paused */
+  const answerAudio = new Audio();
   const voice = 'speechSynthesis' in window ? window.speechSynthesis : null;
   /** the line for where the deck is now, which the play button speaks */
   let line: string | undefined;
@@ -235,6 +250,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   function hush() {
     turn++;
     audio.pause();
+    answerAudio.pause();
     voice?.cancel();
     window.clearTimeout(timer);
     countdown = 0;
@@ -407,6 +423,78 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     report = null;
   }
 
+  // Ask. A live session started with --ask (scripts/session.mjs) can answer questions: one typed here
+  // goes to it with where the deck stands, what the slide says and the last result shown, and the
+  // answer comes back as lines to show and hear. Without such a session there is no Ask button.
+  let canAsk = false;
+  let asking = false;
+  let askOpen = false;
+  const talk: { who: 'you' | 'guide' | 'note'; text: string }[] = [];
+  if (key)
+    fetch('/ask', { headers: { 'X-Wag-Key': key } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((answer: { can?: boolean } | null) => void ((canAsk = answer?.can === true), drawBar()))
+      .catch(() => undefined);
+
+  /** Play an answer's lines one after another: the session's audio when it made some, else the browser's voice. */
+  async function hear(said: { text: string; audio?: string }[]) {
+    const mine = turn;
+    for (const part of said) {
+      if (mine !== turn) return;
+      await new Promise<void>((done) => {
+        if (part.audio) {
+          answerAudio.src = `/audio/${part.audio}?key=${key}`;
+          answerAudio.onended = answerAudio.onerror = answerAudio.onpause = () => done();
+          answerAudio.play().catch(() => done());
+        } else if (voice) {
+          const utterance = new SpeechSynthesisUtterance(part.text);
+          utterance.onend = utterance.onerror = () => done();
+          voice.speak(utterance);
+        } else done();
+      });
+    }
+  }
+
+  async function askGuide(text: string) {
+    if (!text.trim() || asking) return;
+    // the deck stops and waits while a question is open
+    if (auto) setAuto(false);
+    if (hearing === 'playing') playPause();
+    const stage = stages[index];
+    const visible = shown();
+    const live = stage.slide.live;
+    const where = {
+      deck: deck.title,
+      slide: stage.slide.title ?? stage.slide.name ?? `slide ${index + 1}`,
+      at: `slide ${visible.indexOf(stage.slide) + 1} of ${visible.length}${stage.slide.steps.length ? `, ${stage.step + 1} of its ${stage.slide.steps.length} steps shown` : ''}`,
+      line: lineAt(stage),
+      words: stage.slide.elements
+        .map((el) => el.text)
+        .filter(Boolean)
+        .join(' | ')
+        .slice(0, 1500),
+      buttons: live
+        ? [live.show && 'Show me does the step on the page', live.turn && `My turn: ${live.turn.says}`, live.check && `Check compares: ${live.check.map((c) => c.label).join('; ')}`].filter(Boolean).join('. ')
+        : undefined,
+      report: report ? `${report.title}. ${report.lines.map((l) => l.text).join(' ')}`.slice(0, 1200) : undefined,
+    };
+    talk.push({ who: 'you', text: text.trim() });
+    asking = true;
+    drawBar();
+    try {
+      const answer = await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ text: text.trim(), where }) }).then((response) => response.json());
+      if (answer.ok) {
+        const said = answer.said as { text: string; audio?: string }[];
+        for (const part of said) talk.push({ who: 'guide', text: part.text });
+        void hear(said);
+      } else talk.push({ who: 'note', text: answer.why });
+    } catch {
+      talk.push({ who: 'note', text: 'The guide did not answer.' });
+    }
+    asking = false;
+    drawBar();
+  }
+
   /** Every place the deck can stand, in order: each shown slide, then each of its steps, with how long its line takes. */
   const secondsOf = (said: string | undefined) => (said ? (made.audio?.[lineKey(spoken(deck, said))]?.seconds ?? 1.5 + said.length * 0.065) : 3);
   const places = () =>
@@ -428,6 +516,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   }
 
   let drawBar = () => {};
+  let openAsk = () => {};
   if (bar) {
     const css = document.createElement('style');
     css.textContent = BAR_CSS;
@@ -522,8 +611,40 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     for (const b of liveButtons) b.className = 'wag-live';
     const livePanel = document.createElement('div');
     livePanel.className = 'wag-bar-live';
-    row.append(prev, count, next, title, ...liveButtons, play, again, speedButton, autoButton, captionButton, time, fileButton);
-    bar.append(lineEl, timeline, row, files, livePanel);
+    const askPanel = document.createElement('div');
+    askPanel.className = 'wag-bar-ask';
+    const askLog = document.createElement('div');
+    askLog.className = 'wag-bar-ask-log';
+    const askForm = document.createElement('form');
+    const askBox = document.createElement('input');
+    askBox.placeholder = 'Ask about this step or the page';
+    askBox.setAttribute('aria-label', 'Ask the guide');
+    const askSend = document.createElement('button');
+    askSend.textContent = 'Ask';
+    askForm.append(askBox, askSend);
+    askPanel.append(askLog, askForm);
+    askForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const text = askBox.value;
+      askBox.value = '';
+      void askGuide(text);
+    });
+    askBox.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      askOpen = false;
+      askBox.blur();
+      drawBar();
+    });
+    openAsk = () => {
+      askOpen = true;
+      files.style.display = 'none';
+      drawBar();
+      askBox.focus();
+    };
+    const askButton = button('Ask', 'Ask the guide about this step or the page (/)', () => (askOpen ? ((askOpen = false), drawBar()) : openAsk()));
+    askButton.className = 'wag-ask';
+    row.append(prev, count, next, title, ...liveButtons, askButton, play, again, speedButton, autoButton, captionButton, time, fileButton);
+    bar.append(lineEl, timeline, row, files, livePanel, askPanel);
 
     // big arrows at the sides of the slide while the mouse moves over it
     const edges = [
@@ -646,6 +767,22 @@ export function mount(deck: Deck, root: HTMLElement): Player {
         note.textContent = `${why}, so this slide can only be read. Start scripts/live.mjs to drive the page.`;
         livePanel.append(note);
       }
+
+      askButton.hidden = !canAsk;
+      askButton.setAttribute('aria-pressed', String(askOpen));
+      askPanel.style.display = canAsk && askOpen ? 'flex' : 'none';
+      askSend.disabled = asking;
+      const lines = [...talk.slice(-8), ...(asking ? [{ who: 'note' as const, text: 'Looking…' }] : [])];
+      if (!lines.length) lines.push({ who: 'note', text: 'The guide can see which step you are on and the page. It only looks: it never saves or posts.' });
+      askLog.replaceChildren(
+        ...lines.map((item) => {
+          const p = document.createElement('p');
+          p.className = item.who;
+          p.textContent = item.text;
+          return p;
+        })
+      );
+      askLog.scrollTop = askLog.scrollHeight;
 
       const offered: Download[] = [...stage.slide.downloads];
       const handout = stage.slide.handout ? handoutFile(deck, stage.slide) : undefined;
@@ -1168,6 +1305,10 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     } else if (bar && (e.key === 'p' || e.key === 'P')) playPause();
     else if (bar && (e.key === 'a' || e.key === 'A')) setAuto(!auto);
     else if (bar && (e.key === 'c' || e.key === 'C')) setCaptions(!captions);
+    else if (bar && canAsk && e.key === '/') {
+      e.preventDefault();
+      openAsk();
+    }
     else if (e.key === 'Home') player.go(0);
     else if (e.key === 'End') player.go(stages.length - 1);
     else return;

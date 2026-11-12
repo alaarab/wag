@@ -197,6 +197,7 @@ footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; ju
   <a href="#bridge">Running the bridge</a>
   <a href="#safety">What it will not do</a>
   <a href="#live">Live guide</a>
+  <a href="#ask">Ask, inside the deck</a>
   <b>More</b>
   <a href="#outside">Private decks</a>
   <a href="#pptx">PowerPoint</a>
@@ -293,6 +294,7 @@ export default deck({}, [dog]);</code></pre>
     <tr><td><kbd>P</kbd> <kbd>R</kbd></td><td>Play or pause the voice; replay the slide</td></tr>
     <tr><td><kbd>A</kbd></td><td>Auto: waits about two seconds after each line, counting down on Next, then moves on</td></tr>
     <tr><td><kbd>C</kbd></td><td>Text: shows the words being said</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Ask the guide a question, in a session that can answer (see <a href="#ask">Ask</a>)</td></tr>
     <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>First or last slide</td></tr>
   </table>
   <p>The speed button cycles through 1×, 1.25× and 0.85×. Browsers hold sound back until the first click or key press, so a deck opened cold shows a <strong>Start with sound</strong> button.</p>
@@ -503,6 +505,21 @@ guide say "This is the amount the entry has to move."</code></pre>
   <p>Any assistant that can run a shell command can be the guide. Allow it to run <code>guide</code> and nothing else, and give it a short map of the page.</p>
 </section>
 
+<section id="ask">
+  <h3>Ask, inside the deck</h3>
+  <p>With <code>--ask</code>, the session can answer questions typed into the deck itself, so there is no second window to keep open. The bar gets an <strong>Ask</strong> button (or press <kbd>/</kbd>). The deck pauses, the question goes to the guide along with which step you are on, what the slide says, the last Check result and where the page is, and the answer comes back as text and voice. Each question carries on the same conversation, so a follow-up like "and who owns that?" works.</p>
+  <figure>
+    <img src="img/ask.png" alt="A guided slide with an Ask panel: two questions and their answers, and a box to type the next one" loading="lazy" />
+    <figcaption>Two questions about the made-up page. The second answer came from a table row behind the open dialog.</figcaption>
+  </figure>
+  <pre><code class="sh"># with the browser from "Running the bridge" up on port 9333, and after npm run build
+node scripts/session.mjs --deck dist --ask scripts/ask.sh \
+  --bridge "node scripts/live.mjs --stdio"
+# open http://127.0.0.1:5191/?deck=my-deck&key=$(cat ~/.cache/wag/bridge.token)</code></pre>
+  <p>To try it on the made-up <code>guided</code> deck, serve its page plainly with <code>python3 -m http.server 5180 --directory dist</code> and add <code>--app http://127.0.0.1:5180/guide</code> to the bridge command. The session keeps a deck's own files behind its key, so the driven browser cannot load the made-up page from the session itself.</p>
+  <p><code>--ask</code> takes any command. It is run once per question with the question on its input, and it answers by running <code>guide say</code> or simply by printing the answer. <code>scripts/ask.sh</code> is one that uses Claude Code on a fast model, allowed to run <code>guide</code> and nothing else; set <code>ASK_DIR</code> to a folder holding a map of your page. The session's console page has the same box.</p>
+</section>
+
 <section id="outside">
   <h2><span class="k">More</span>Decks outside the repo</h2>
   <p>A deck made from private material should not sit in this repo. Set <code>WAG_DECKS</code> to a folder elsewhere: its <code>*.ts</code> files are listed and played with the repo's own, and its <code>public/</code> folder is served the same way.</p>
@@ -528,6 +545,7 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
     <tr><td><code>GUIDE_SESSION</code></td><td>The session's address for <code>guide</code> (default <code>http://127.0.0.1:5191</code>)</td></tr>
     <tr><td><code>GUIDE_KEY_FILE</code></td><td>Where the session wrote its key (default <code>~/.cache/wag/bridge.token</code>)</td></tr>
     <tr><td><code>GUIDE_BRIDGE</code></td><td>Point <code>guide</code> straight at a bridge that listens by itself</td></tr>
+    <tr><td><code>ASK_DIR</code>, <code>GUIDE_MODEL</code></td><td>For <code>scripts/ask.sh</code>: the folder with your page map, and the model that answers</td></tr>
   </table>
   <table>
     <tr><th>File</th><th>What it is</th></tr>
@@ -540,6 +558,7 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
     <tr><td><code>scripts/make.mjs</code></td><td>Narration audio, Word handouts and <code>wag.json</code></td></tr>
     <tr><td><code>scripts/live.mjs</code></td><td>The bridge that drives a browser</td></tr>
     <tr><td><code>scripts/session.mjs</code>, <code>guide.mjs</code>, <code>voice.py</code></td><td>The live guide: session, command and warm voice</td></tr>
+    <tr><td><code>scripts/ask.sh</code></td><td>An answerer for the Ask box</td></tr>
     <tr><td><code>spike/</code></td><td>The script that first tested which animation XML PowerPoint accepts</td></tr>
   </table>
   <div class="note warn"><p>wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.</p></div>

@@ -117,6 +117,10 @@ To watch it on your own screen, start the browser with a window and add `--live`
 
 **Live guide.** `scripts/session.mjs` and the `guide` command let an assistant and a person share one tab: the assistant rings things, reads the page and talks (`guide highlight`, `guide read`, `guide say`), through the same bridge and the same rules. See the [docs page](docs/index.html#live).
 
+**Ask, inside the deck.** Start the session with `--ask scripts/ask.sh` and the bar gets an Ask button (or press `/`). A question typed there goes to the guide with the step you are on and what the page shows, and the answer comes back as text and voice, one conversation from the first question to the last.
+
+<img src="docs/img/ask.png" alt="A guided slide with an Ask panel: two questions and their answers" width="820">
+
 ## Private decks
 
 A deck made from private material should not sit in this repo. Point `WAG_DECKS` at a folder elsewhere; its decks are listed with the repo's own and its `public/` is served the same way.
@@ -142,6 +146,7 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 - `scripts/make.mjs`: narration audio and Word handouts
 - `scripts/live.mjs`: the bridge that drives a browser
 - `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
+- `scripts/ask.sh`: an answerer for the Ask box, using Claude Code
 - `spike/`: the script that first tested which animation XML PowerPoint accepts
 
 wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.

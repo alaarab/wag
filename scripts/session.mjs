@@ -13,9 +13,10 @@
 // Options: --port N (default 5191), --key FILE (default ~/.cache/wag/bridge.token), --voice FILE
 // (a Piper voice; default the medium voice under ~/.local/share/wag-voice), --pronounce FILE (a
 // JSON object of written form to spoken form), --label TEXT (shown on the console, such as
-// "PRIVATE: production data").
+// "PRIVATE: production data"), --deck DIR (a built deck to serve, so its buttons work in this session),
+// --ask COMMAND (what answers a question typed in the deck's Ask box or on the console: see "questions").
 import { execFile, spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir } from 'node:os';
@@ -35,6 +36,7 @@ const pronounce = option('pronounce') ? JSON.parse(readFileSync(option('pronounc
 const label = option('label', '');
 // a built deck folder to serve too, so a guided deck's buttons reach the bridge through this session
 const deckDir = option('deck') ? resolve(option('deck')) : null;
+const askCommand = option('ask');
 mkdirSync(join(dir, 'audio'), { recursive: true });
 mkdirSync(resolve(keyFile, '..'), { recursive: true });
 const token = randomBytes(24).toString('hex');
@@ -121,11 +123,13 @@ header{display:flex;gap:12px;align-items:center;padding:10px 18px;background:#02
 header b{flex:1} .tag{background:#b45309;color:#fff;border-radius:999px;padding:2px 12px;font-size:14px;font-weight:600}
 button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:6px 14px;background:#1e293b;color:inherit;cursor:pointer} button[aria-pressed=true]{background:#38bdf8;color:#0f172a}
 main{flex:1;display:flex;min-height:0} #log{flex:1;overflow:auto;padding:18px} #mirror{display:none;flex:2;background:#020617;align-items:center;justify-content:center} #mirror img{max-width:100%;max-height:100%}
+#ask{display:none;gap:10px;padding:12px 18px;background:#020617;border-top:1px solid #1e293b} #ask input{flex:1;font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:inherit} #ask button{background:#38bdf8;color:#0f172a}
 .line{margin:0 0 14px;max-width:70ch} .who{font-size:13px;color:#94a3b8;display:block} .you{color:#cbd5e1} .guide.now{color:#38bdf8}
 #start{display:none;position:fixed;inset:0;margin:auto;width:260px;height:64px;font-size:20px;background:#38bdf8;color:#0f172a;border-radius:999px}
 </style></head><body>
 <header><b>Guide</b><span class="tag" id="label" hidden></span><button id="sound" aria-pressed="true">Sound</button><button id="mirrorBtn" aria-pressed="false">Show the page here</button></header>
 <main><div id="log"></div><div id="mirror"><img alt="The page the guide is driving"></div></main>
+<form id="ask"><input placeholder="Ask about the page" aria-label="Ask the guide"><button>Ask</button></form>
 <button id="start">Start with sound</button>
 <script>
 const key = new URLSearchParams(location.search).get('key') ?? '';
@@ -157,6 +161,8 @@ document.getElementById('sound').onclick = (e) => { sound = !sound; e.target.set
 let mirror = false, img = document.querySelector('#mirror img');
 const frame = () => { if (!mirror) return; const n = new Image(); n.onload = () => { img.src = n.src; setTimeout(frame, 700); }; n.onerror = () => setTimeout(frame, 2000); n.src = '/mirror?key=' + key + '&t=' + Date.now(); };
 document.getElementById('mirrorBtn').onclick = (e) => { mirror = !mirror; e.target.setAttribute('aria-pressed', mirror); document.getElementById('mirror').style.display = mirror ? 'flex' : 'none'; frame(); };
+const ask = document.getElementById('ask'); if (${JSON.stringify(Boolean(askCommand))}) ask.style.display = 'flex';
+ask.onsubmit = (e) => { e.preventDefault(); const box = ask.querySelector('input'), text = box.value.trim(); if (!text) return; box.value = ''; fetch('/ask?key=' + key, { method: 'POST', body: JSON.stringify({ text }) }); };
 fetch('/lines?key=' + key).then((r) => r.json()).then((old) => { old.forEach((l) => show(l, true)); new EventSource('/events?key=' + key).onmessage = (m) => show(JSON.parse(m.data)); });
 </script></body></html>`;
 
@@ -228,6 +234,76 @@ async function stopRecording() {
   return { ok: true, video, seconds: Math.round(length), walkthrough: join(done.folder, 'walkthrough.md'), subtitles: join(done.folder, 'session.srt'), private: Boolean(label) };
 }
 
+/** Show a line and speak it: it is heard as soon as its audio exists, which for a warm voice is a fraction of a second. */
+let spokenLines = 0;
+async function sayLine(text) {
+  const id = `line-${String(++spokenLines).padStart(4, '0')}`;
+  const made = await speak(id, text);
+  return add({ who: 'guide', text, audio: made.seconds ? `${id}.wav` : undefined, seconds: made.seconds });
+}
+
+// ---- questions ----------------------------------------------------------------------------------
+// "Ask": a question typed in the deck or on the console is handed to --ask, a command that gets the
+// question and where the person is on its input. It answers by running `guide say` (after pointing
+// at the page with the other guide commands, if it likes), or simply by printing the answer. One
+// question at a time. WAG_ASK_ID is the same for the whole session and WAG_ASK_N counts the
+// questions, so the command can keep one conversation going from the first question to the last.
+
+const talkId = randomUUID();
+let questions = 0;
+let answering = false;
+
+const promptFor = (text, where = {}, page) =>
+  [
+    where.deck && `The person is in the guided deck "${where.deck}", on "${where.slide}" (${where.at}).`,
+    where.line && `The line said there: "${where.line}"`,
+    where.words && `On the slide: ${where.words}`,
+    where.buttons && `This step's buttons. ${where.buttons}`,
+    where.report && `The last result shown to them: ${where.report}`,
+    page?.ok && `The page now: ${page.address}${page.dialog ? `, with the dialog "${page.dialog}" open` : ''}${page.viewerClicks?.length ? `. Their last clicks: ${page.viewerClicks.join('; ')}` : ''}.`,
+    `They ask: ${text}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+async function answer(text, where) {
+  if (!askCommand) return { ok: false, why: 'This session has nothing to answer questions with. Start it with --ask.' };
+  if (!text?.trim()) return { ok: false, why: 'There was no question.' };
+  if (answering) return { ok: false, why: 'Still answering the last question.' };
+  answering = true;
+  add({ who: 'you', text });
+  const from = count;
+  try {
+    const page = bridge ? await Promise.race([toBridge('cmd', { cmd: 'where' }), new Promise((done) => setTimeout(() => done(null), 4000))]) : null;
+    const printed = await new Promise((done, fail) => {
+      const env = { ...process.env, WAG_ASK_ID: talkId, WAG_ASK_N: String(++questions), GUIDE_SESSION: `http://127.0.0.1:${port}`, GUIDE_KEY_FILE: keyFile };
+      const child = spawn('bash', ['-c', askCommand], { stdio: ['pipe', 'pipe', 'inherit'], env });
+      let out = '';
+      child.stdout.on('data', (chunk) => (out += chunk));
+      const timer = setTimeout(() => {
+        child.kill();
+        fail(new Error('No answer in two minutes.'));
+      }, 120000);
+      child.on('error', fail);
+      child.on('exit', () => {
+        clearTimeout(timer);
+        done(out.trim());
+      });
+      child.stdin.on('error', () => {});
+      child.stdin.end(promptFor(text, where, page));
+    });
+    // what the guide said while it answered; if it only printed, that is the answer
+    let said = lines.filter((line) => line.n > from && line.who === 'guide');
+    if (!said.length && printed) said = [await sayLine(printed)];
+    if (!said.length) return { ok: false, why: 'No answer came back.' };
+    return { ok: true, said: said.map((line) => ({ text: line.text, audio: line.audio, seconds: line.seconds })) };
+  } catch (error) {
+    return { ok: false, why: error.message.split('\n')[0] };
+  } finally {
+    answering = false;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   // the key arrives in the address once; after that the browser carries it in a cookie, so a deck's
@@ -249,16 +325,15 @@ const server = http.createServer(async (req, res) => {
     const live = /^\/live\/(\w+)$/.exec(url.pathname)?.[1];
     if (live) return json(await toBridge(live, JSON.parse(body || '{}')));
     if (url.pathname === '/record') return json(JSON.parse(body || '{}').on ? startRecording() : await stopRecording().catch((error) => ({ ok: false, why: error.message.split('\n')[0] })));
-    const { text } = JSON.parse(body || '{}');
+    const { text, where } = JSON.parse(body || '{}');
     if (url.pathname === '/heard') return json({ ok: true, n: add({ who: 'you', text }).n });
     if (url.pathname === '/say') {
-      // the line is shown and heard as soon as its audio exists, which for a warm voice is a fraction of a second
-      const id = `line-${String(count + 1).padStart(4, '0')}`;
-      const made = await speak(id, text);
-      const line = add({ who: 'guide', text, audio: made.seconds ? `${id}.wav` : undefined, seconds: made.seconds });
-      return json({ ok: true, n: line.n, seconds: made.seconds ?? null });
+      const line = await sayLine(text);
+      return json({ ok: true, n: line.n, seconds: line.seconds ?? null });
     }
+    if (url.pathname === '/ask') return json(await answer(text, where));
   }
+  if (url.pathname === '/ask') return json({ ok: true, can: Boolean(askCommand), busy: answering });
   if (deckDir && (url.pathname === '/' ? url.searchParams.has('deck') : !['/console', '/lines', '/events', '/mirror'].includes(url.pathname) && !url.pathname.startsWith('/audio/line-'))) {
     const file = join(deckDir, normalize(decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)));
     if (file.startsWith(deckDir) && existsSync(file) && statSync(file).isFile()) {

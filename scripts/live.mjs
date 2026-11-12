@@ -205,7 +205,15 @@ async function keepDownload(download) {
  * if the control was mislabelled. Pages on this machine (practice pages) are left alone.
  */
 async function lookOnly(work) {
-  if (isLocal(page.url())) return work();
+  if (isLocal(page.url())) {
+    // a page on this machine may do anything, but the guide's own clicks are still not the viewer's
+    await page.evaluate(() => (window.__wagActing = true)).catch(() => {});
+    try {
+      return await work();
+    } finally {
+      await page.evaluate(() => (window.__wagActing = false)).catch(() => {});
+    }
+  }
   const stopped = [];
   const gate = (route) => {
     const request = route.request();
@@ -602,7 +610,9 @@ const commands = {
       hits.push(await found.nth(i).evaluate((el) => {
         const control = el.closest('button, a, [role="button"], [role="tab"], [role="combobox"], tr, th, td, h1, h2, h3, label');
         const box = el.getBoundingClientRect();
-        return { says: el.innerText.trim().replace(/\s+/g, ' ').slice(0, 110), is: (control?.getAttribute('role') || control?.tagName || el.tagName).toLowerCase(), onScreen: box.top >= 0 && box.bottom <= innerHeight, inDialog: Boolean(el.closest('[role="dialog"], dialog')) };
+        // a match inside a table or grid row comes with the rest of its row, which is usually what was wanted
+        const row = el.closest('tr, [role="row"]');
+        return { says: el.innerText.trim().replace(/\s+/g, ' ').slice(0, 110), row: row && row !== el ? row.innerText.trim().replace(/\s+/g, ' ').slice(0, 240) : undefined, is: (control?.getAttribute('role') || control?.tagName || el.tagName).toLowerCase(), onScreen: box.top >= 0 && box.bottom <= innerHeight, inDialog: Boolean(el.closest('[role="dialog"], dialog')) };
       }));
     }
     return { count, hits };
