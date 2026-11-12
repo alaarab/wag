@@ -289,7 +289,7 @@ function ringInPage(el, [note, tone]) {
 
 async function ring(target, note, tone = '#38bdf8') {
   const found = locate(target);
-  await found.waitFor({ state: 'visible', timeout: 15000 });
+  await found.waitFor({ state: 'visible', timeout: 6000 });
   await found.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await found.evaluate(ringInPage, [note ?? '', tone]);
   return found;
@@ -588,7 +588,7 @@ const commands = {
     // with no target: the open dialog if there is one, since that is what the viewer is looking at; otherwise the page
     const dialog = page.locator('[role="dialog"], dialog[open]').locator('visible=true').last();
     const found = target ? locate(target) : (await dialog.count()) ? dialog : page.locator('main').first();
-    return { text: brief(await found.innerText({ timeout: 10000 }), most) };
+    return { text: brief(await found.innerText({ timeout: 4000 }), most) };
   },
   async highlight({ target, note }) {
     return { did: await act({ point: target, note }) };
