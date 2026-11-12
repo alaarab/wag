@@ -10,6 +10,10 @@
 // saves, posts, approves, submits, deletes or sends. Those are refused, and the deck can only ring
 // them and wait for the viewer's own click (My turn).
 //
+// With --stdio it listens on nothing at all: it reads one request per line on its input
+// ({"id":1,"route":"cmd","body":{...}}) and writes one answer per line, so only the program that
+// started it can use it. That is how a live session on another machine reaches it, over ssh.
+//
 // Options: --port N, --serve DIR (a built deck; leave out when `npm run dev` serves the page),
 // --cdp URL, --app URL (send the deck's `go` addresses somewhere else, for a rehearsal),
 // --files DIR (where downloads are kept and checks look for workbooks), --no-open (never start
@@ -19,6 +23,7 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
@@ -42,6 +47,7 @@ mkdirSync(filesDir, { recursive: true });
 mkdirSync(downloadsDir, { recursive: true });
 // --live: a session the viewer started. The guide drives the one tab they are looking at, and every download is their own click.
 const liveSession = args.includes('--live');
+const overStdio = args.includes('--stdio');
 
 // A new key at every start, written where only the session that launched the bridge reads it. Every
 // request has to carry it, so no other program on this machine can use the bridge.
@@ -526,6 +532,10 @@ const commands = {
     await page.screenshot({ path: file });
     return { file };
   },
+  /** the tab as a small picture, for a console that mirrors it or a recording */
+  async frame() {
+    return { jpeg: (await page.screenshot({ type: 'jpeg', quality: 55 })).toString('base64') };
+  },
   async clear() {
     await clear();
     return { did: 'Cleared' };
@@ -611,9 +621,7 @@ const server = http.createServer(async (req, res) => {
     }
     let body = '';
     for await (const chunk of req) body += chunk;
-    const asked = body ? JSON.parse(body) : {};
-    const answer = await routes[route](asked).catch((error) => ({ ok: false, why: error.message.split('\n')[0] }));
-    if (route !== 'status') record({ route, asked: route === 'cmd' ? asked : { steps: (asked.live?.show ?? []).length || undefined, turn: asked.live?.turn?.says, checks: (asked.live?.check ?? []).length || undefined }, ok: answer.ok, refused: answer.refused || undefined, why: answer.why, done: answer.done ?? answer.did, sent: answer.sent?.length ? answer.sent : undefined, ms: answer.ms });
+    const answer = await answerTo(route, body ? JSON.parse(body) : {});
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(answer));
   }
@@ -631,18 +639,43 @@ const server = http.createServer(async (req, res) => {
   createReadStream(file).pipe(res);
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`wag live bridge on http://127.0.0.1:${port}${serve ? `, serving ${serve}` : ''}`);
-  console.log(`Browser: ${cdp}${appOverride ? `, app sent to ${appOverride}` : ''}. Files: ${filesDir}. Key: ${tokenFile}. Log: ${logFile}.`);
-  console.log(liveSession ? 'Live session: driving the tab that is showing; downloads are the viewer\'s own click. Ctrl+C stops it and leaves the tab open.' : 'Ctrl+C stops it and closes its tab.');
-  record({ started: true, live: liveSession, cdp, app: appOverride ?? null });
-});
+/** One request, answered and written to the log, however it arrived. */
+async function answerTo(route, asked) {
+  const answer = await routes[route](asked).catch((error) => ({ ok: false, why: error.message.split('\n')[0] }));
+  if (route !== 'status' && asked.cmd !== 'frame') record({ route, asked: route === 'cmd' ? asked : { steps: (asked.live?.show ?? []).length || undefined, turn: asked.live?.turn?.says, checks: (asked.live?.check ?? []).length || undefined }, ok: answer.ok, refused: answer.refused || undefined, why: answer.why, done: answer.done ?? answer.did, sent: answer.sent?.length ? answer.sent : undefined, ms: answer.ms });
+  return answer;
+}
 
-const stop = async () => {
+if (overStdio) {
+  record({ started: true, live: liveSession, stdio: true, cdp, app: appOverride ?? null });
+  console.error(`wag live bridge on its own input and output. Browser: ${cdp}. Files: ${filesDir}. Log: ${logFile}.`);
+  console.log(JSON.stringify({ ready: true }));
+  createInterface({ input: process.stdin }).on('line', async (line) => {
+    let asked;
+    try {
+      asked = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const answer = routes[asked.route] ? await answerTo(asked.route, asked.body ?? {}) : { ok: false, why: `Unknown route "${asked.route}"` };
+    console.log(JSON.stringify({ id: asked.id, answer }));
+  });
+  // whoever started it has gone: stop, and tidy the page
+  process.stdin.on('end', () => void stop());
+} else {
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`wag live bridge on http://127.0.0.1:${port}${serve ? `, serving ${serve}` : ''}`);
+    console.log(`Browser: ${cdp}${appOverride ? `, app sent to ${appOverride}` : ''}. Files: ${filesDir}. Key: ${tokenFile}. Log: ${logFile}.`);
+    console.log(liveSession ? 'Live session: driving the tab that is showing; downloads are the viewer\'s own click. Ctrl+C stops it and leaves the tab open.' : 'Ctrl+C stops it and closes its tab.');
+    record({ started: true, live: liveSession, cdp, app: appOverride ?? null });
+  });
+}
+
+async function stop() {
   await clear();
   if (ownsTab) await page?.close().catch(() => {});
   await browser?.close().catch(() => {});
   process.exit(0);
-};
+}
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

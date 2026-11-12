@@ -10,9 +10,11 @@
 //   guide scroll "Tea refund"   |   guide close   |   guide clear   |   guide screenshot name
 //   guide turn "Correcting entry" --says "It downloads a workbook; nothing is saved" --file "correcting-entry*" --as entry
 //   guide check '<json list of checks>'
+//   guide say "One or two sentences."      (shown as text and spoken)      guide heard "what the person asked"
 // A target is the words on the page. Forms: "css=#id", "role=button:Name". --in dialog narrows it; --last takes the last match.
-// GUIDE_BRIDGE is the bridge's address (default http://127.0.0.1:5190); GUIDE_KEY_FILE is where it wrote its key
-// (default ~/.cache/wag/bridge.token, which is where `live.mjs --token` should then point).
+// It talks to scripts/session.mjs, which passes commands on to the bridge. GUIDE_SESSION is its address
+// (default http://127.0.0.1:5191) and GUIDE_KEY_FILE where it wrote its key (default ~/.cache/wag/bridge.token).
+// GUIDE_BRIDGE points straight at a bridge that listens by itself instead.
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -32,7 +34,7 @@ const target = (text) => {
   if (flags.exact) t.exact = true;
   return t;
 };
-const bridge = process.env.GUIDE_BRIDGE ?? 'http://127.0.0.1:5190';
+const bridge = process.env.GUIDE_BRIDGE ?? process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
 const key = readFileSync(process.env.GUIDE_KEY_FILE ?? join(homedir(), '.cache/wag/bridge.token'), 'utf8').trim();
 const post = (route, body) => fetch(`${bridge}/live/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify(body) }).then((r) => (r.ok ? r.json() : { ok: false, why: `bridge answered ${r.status}` }));
 
@@ -53,7 +55,11 @@ const bodies = {
 };
 
 let answer;
-if (cmd === 'turn') {
+if (cmd === 'say' || cmd === 'heard') {
+  // the talking half of the session: say shows the line and speaks it, heard notes what the person asked
+  const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
+  answer = await fetch(`${session}/${cmd}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ text: words.join(' ') }) }).then((r) => (r.ok ? r.json() : { ok: false, why: `session answered ${r.status}` }), () => ({ ok: false, why: 'the session console is not running' }));
+} else if (cmd === 'turn') {
   // ring it, say what the click does, and wait for the viewer: for a page state, or for a file they download
   const until = { url: flags.url, see: flags.see ? target(flags.see) : undefined, file: flags.file ? { like: flags.file, as: flags.as ?? 'download' } : undefined };
   const live = { turn: { point: target(words[0]), says: flags.says ?? '', until } };
@@ -62,7 +68,7 @@ if (cmd === 'turn') {
   while (answer.ok && !answer.reached && Date.now() < end) answer = await post('turn', { live, again: true });
 } else if (bodies[cmd]) answer = await post('cmd', { cmd, ...bodies[cmd]() });
 else {
-  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn`);
+  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn, say, heard`);
   process.exit(2);
 }
 console.log(JSON.stringify(answer, null, 1));
