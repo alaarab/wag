@@ -21,7 +21,7 @@
 // It needs only Node and Playwright, so it can be copied next to any Playwright install.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
@@ -48,6 +48,10 @@ mkdirSync(downloadsDir, { recursive: true });
 // --live: a session the viewer started. The guide drives the one tab they are looking at, and every download is their own click.
 const liveSession = args.includes('--live');
 const overStdio = args.includes('--stdio');
+// The owner's own go to use a browser that has a window, for building: written to the log with the bridge's start.
+const ownerGo = option('owner-go');
+/** set when the bridge connects: whether the browser has a window */
+let windowed = false;
 
 // A new key at every start, written where only the session that launched the bridge reads it. Every
 // request has to carry it, so no other program on this machine can use the bridge.
@@ -109,7 +113,9 @@ async function quietTab() {
 async function mayUse() {
   const version = await fetch(`${cdp}/json/version`, { signal: AbortSignal.timeout(4000) }).then((r) => r.json());
   const hidden = /Headless/i.test(version['User-Agent'] ?? '');
-  if (!hidden && !liveSession) {
+  windowed = !hidden;
+  if (!hidden && !liveSession && ownerGo) record({ ownerGo, note: 'browser with a window, used on the owner\'s go' });
+  if (!hidden && !liveSession && !ownerGo) {
     throw new Refused('That browser has a window, so it is someone\'s. The bridge only drives a windowless browser unless the person at it started a live session (--live).');
   }
 }
@@ -119,19 +125,23 @@ async function tab() {
     await mayUse();
     browser = await chromium.connectOverCDP(cdp, { timeout: 8000 });
     page = null;
-    // any download the browser itself makes goes to this folder under its own name, never to the person's list of downloads
-    if (!liveSession) {
+    // A browser with a window is someone's: their own downloads must go where they always go. Connecting
+    // Playwright redirects them to a temporary folder it empties on leaving, so that is undone here.
+    if (windowed) await (await browser.newBrowserCDPSession()).send('Browser.setDownloadBehavior', { behavior: 'default' }).catch(() => {});
+    // in a windowless browser any download goes to the bridge's folder under its own name
+    if (!windowed) {
       const session = await browser.newBrowserCDPSession();
-      await session.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: filesDir, eventsEnabled: true }).catch(() => {});
+      await session.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: liveSession ? downloadsDir : filesDir, eventsEnabled: true }).catch(() => {});
       // the browser names each file by a random id; give it back its own name when it is complete
       const names = new Map();
       session.on('Browser.downloadWillBegin', (event) => names.set(event.guid, event.suggestedFilename));
       session.on('Browser.downloadProgress', (event) => {
         if (event.state !== 'completed' || !names.has(event.guid)) return;
         const name = names.get(event.guid);
-        const file = join(filesDir, name);
+        const folder = liveSession ? downloadsDir : filesDir;
+        const file = join(folder, name);
         try {
-          renameSync(join(filesDir, event.guid), file);
+          renameSync(join(folder, event.guid), file);
         } catch {
           return;
         }
@@ -304,8 +314,18 @@ async function holds(expect) {
   if (expect.file) {
     // a file whose name fits, downloaded since this wait began
     const fits = new RegExp(`^${expect.file.like.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`, 'i');
-    if (!lastDownload || lastDownload.at < (expect.since ?? 0) || !fits.test(lastDownload.name)) return false;
-    kept.set(expect.file.as, lastDownload.file);
+    let got = lastDownload && lastDownload.at >= (expect.since ?? 0) && fits.test(lastDownload.name) ? lastDownload : null;
+    if (!got) {
+      // the browser saved it itself, so look in the downloads folder for a new file whose name fits
+      const fresh = readdirSync(downloadsDir)
+        .filter((name) => fits.test(name) && !/\.(crdownload|tmp)$/i.test(name))
+        .map((name) => ({ name, file: join(downloadsDir, name), at: statSync(join(downloadsDir, name)).mtimeMs }))
+        .filter((f) => f.at >= (expect.since ?? 0) - 2000)
+        .sort((a, b) => b.at - a.at)[0];
+      if (!fresh) return false;
+      got = fresh;
+    }
+    kept.set(expect.file.as, got.file);
   }
   return true;
 }
