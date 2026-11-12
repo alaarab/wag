@@ -66,6 +66,7 @@ const BAR_CSS = `
 .wag-bar{position:absolute;left:0;right:0;bottom:0;background:#020617;border-top:1px solid #1e293b;color:#e2e8f0;font:14px/1.3 Inter,"Segoe UI",system-ui,sans-serif;user-select:none}
 .wag-bar-row{display:flex;align-items:center;gap:6px;height:52px;padding:0 14px}
 .wag-bar button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;min-width:34px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
+.wag-bar [hidden]{display:none!important}
 .wag-bar button:hover{background:rgba(148,163,184,.2)}
 .wag-bar button[aria-pressed=true]{background:#38bdf8;color:#0f172a}
 .wag-bar button:disabled{opacity:.35;cursor:default;background:transparent}
@@ -78,6 +79,17 @@ const BAR_CSS = `
 .wag-bar-files a{display:block;padding:9px 12px;border-radius:8px;color:#e2e8f0;text-decoration:none}
 .wag-bar-files a:hover{background:rgba(148,163,184,.2)}
 .wag-bar-files small{display:block;padding:8px 12px 4px;color:#94a3b8}
+.wag-bar button.wag-live{background:#1e293b;padding:0 12px}
+.wag-bar button.wag-live:hover:not(:disabled){background:#334155}
+.wag-bar-live{display:none;position:absolute;left:14px;bottom:58px;width:min(620px,calc(100% - 28px));max-height:46vh;overflow:auto;padding:12px 14px;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45}
+.wag-bar-live b{display:block;margin-bottom:6px}
+.wag-bar-live div{padding:3px 0 3px 24px;position:relative}
+.wag-bar-live div::before{position:absolute;left:0;font-weight:700}
+.wag-bar-live .ok::before{content:"\\2713";color:#34d399}
+.wag-bar-live .no::before{content:"\\2717";color:#f87171}
+.wag-bar-live .wait::before{content:"\\2026";color:#fbbf24}
+.wag-bar-live .note{color:#94a3b8}
+.wag-bar-live small{color:#94a3b8}
 .wag-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:10px;padding:16px 28px;border:0;border-radius:999px;background:#38bdf8;color:#0f172a;font:700 20px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .wag-start svg{width:22px;height:22px;fill:currentColor}`;
 
@@ -109,7 +121,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   root.append(frameEl);
 
   // a deck that is narrated or hands out files gets a bar under the slide; other decks keep the whole window
-  const guided = deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout);
+  const guided = deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout || s.live);
   const bar = guided ? document.createElement('div') : null;
   if (bar) {
     bar.className = 'wag-bar';
@@ -215,7 +227,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       if (mine !== turn) return;
       heard('nothing');
       // only a line that was heard moves the deck on, so a slide with nothing to say waits for the viewer
-      if (auto && !atEnd()) timer = window.setTimeout(() => mine === turn && player.next(), 700);
+      // nor does a slide that drives the live page: the viewer has buttons to press there
+      if (auto && !atEnd() && !stages[index].slide.live) timer = window.setTimeout(() => mine === turn && player.next(), 700);
     };
     const timed = () => {
       through = 'timer';
@@ -270,6 +283,84 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     return stage.step >= stage.slide.steps.length - 1 && !deck.slides.slice(index + 1).some((s) => !s.hidden);
   };
 
+  // Guided slides. The bridge (scripts/live.mjs) does the driving; the player only asks it to and
+  // shows what came back. With no bridge the buttons are off and the deck is still a deck.
+  const drives = deck.slides.some((s) => s.live);
+  let bridge: 'unknown' | 'up' | 'no-browser' | 'down' = 'unknown';
+  /** what the last button press reported, as lines for the panel */
+  type ReportLine = { kind: 'ok' | 'no' | 'wait' | 'note'; text: string };
+  let report: { title: string; lines: ReportLine[] } | null = null;
+  let busy = false;
+  /** changes when the slide does, so a wait that is still going stops reporting */
+  let visit = 0;
+  /** `app` may be a path on this site, as it is for a practice page: the bridge needs the whole address */
+  const app = deck.app ? new URL(deck.app, location.origin).href.replace(/\/$/, '') : undefined;
+  const ask = (what: string, body?: unknown): Promise<any> =>
+    fetch(`/live/${what}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) }).then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))));
+  const meet = () =>
+    ask('status').then(
+      (status: { browser: boolean }) => void ((bridge = status.browser ? 'up' : 'no-browser'), drawBar()),
+      () => void ((bridge = 'down'), drawBar())
+    );
+  if (drives) void meet();
+
+  /** Say a result out loud, unless the slide's own narration is talking. */
+  const announce = (words: string) => {
+    if (hearing !== 'playing' && voice) voice.speak(new SpeechSynthesisUtterance(words));
+  };
+
+  async function drive(what: 'show' | 'turn' | 'check') {
+    const live = stages[index].slide.live;
+    if (!live || busy) return;
+    const mine = visit;
+    const tell = (next: typeof report) => {
+      if (mine !== visit) return;
+      report = next;
+      drawBar();
+    };
+    busy = true;
+    const title = { show: 'Show me', turn: 'My turn', check: 'Check' }[what];
+    tell({ title, lines: [{ kind: 'wait', text: what === 'turn' ? `Waiting for your click. ${live.turn?.says ?? ''}` : 'Working on the live page' }] });
+    try {
+      if (what === 'show') {
+        const answer = await ask('show', { live, app });
+        const lines: ReportLine[] = (answer.done as string[]).map((text) => ({ kind: 'ok', text }));
+        if (!answer.ok) lines.push({ kind: 'no', text: answer.why });
+        // nothing is hidden: if the page itself sent anything other than a read while the deck acted, it is listed
+        for (const request of (answer.sent ?? []) as string[]) lines.push({ kind: 'note', text: `The page sent: ${request}` });
+        tell({ title: answer.ok ? 'Show me: done' : answer.refused ? 'Show me: stopped, this one is yours' : 'Show me: stopped', lines });
+      } else if (what === 'turn') {
+        let answer = await ask('turn', { live, app });
+        while (answer.ok && !answer.reached && mine === visit) answer = await ask('turn', { live, app, again: true });
+        if (answer.ok && answer.reached) {
+          tell({ title: 'My turn: done', lines: [{ kind: 'ok', text: 'The page is where this step expects it.' }] });
+          announce('Done. The page is where this step expects it.');
+        } else if (!answer.ok) tell({ title: 'My turn: stopped', lines: [{ kind: 'no', text: answer.why }] });
+      } else {
+        const answer = await ask('check', { live });
+        const results = answer.results as { label: string; ok: boolean; got: string; want: string }[];
+        const good = results.filter((r) => r.ok).length;
+        const lines: ReportLine[] = results.map((r) => ({ kind: r.ok ? 'ok' : 'no', text: `${r.label}: ${r.got}${r.want === '' ? '' : r.ok ? ` matches ${r.want}` : ` does not match ${r.want}`}` }));
+        const summary = good === results.length ? `Check: all ${results.length} match` : `Check: ${results.length - good} of ${results.length} do not match`;
+        tell({ title: summary, lines });
+        announce(`${summary}.`);
+      }
+    } catch {
+      bridge = 'down';
+      tell({ title: `${title}: no answer`, lines: [{ kind: 'no', text: 'The live bridge did not answer. Start scripts/live.mjs and try again.' }] });
+    }
+    busy = false;
+    drawBar();
+  }
+
+  /** Leaving a slide ends whatever its buttons started and takes the ring off the live page. */
+  function leaveLive() {
+    visit++;
+    busy = false;
+    if (report && bridge === 'up') void ask('clear').catch(() => undefined);
+    report = null;
+  }
+
   let drawBar = () => {};
   if (bar) {
     const css = document.createElement('style');
@@ -305,8 +396,15 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     const autoButton = button('Auto', 'Move on when the narration ends (A)', () => setAuto(!auto));
     const captionButton = button('Text', 'Show the words being said (C)', () => setCaptions(!captions));
     const fileButton = button('', 'Files for this slide', () => (files.style.display = files.style.display === 'block' ? 'none' : 'block'));
-    row.append(prev, count, next, title, play, again, autoButton, captionButton, fileButton);
-    bar.append(lineEl, row, files);
+    const showButton = button('Show me', '', () => void drive('show'));
+    const turnButton = button('My turn', '', () => void drive('turn'));
+    const checkButton = button('Check', '', () => void drive('check'));
+    const liveButtons = [showButton, turnButton, checkButton];
+    for (const b of liveButtons) b.className = 'wag-live';
+    const livePanel = document.createElement('div');
+    livePanel.className = 'wag-bar-live';
+    row.append(prev, count, next, title, ...liveButtons, play, again, autoButton, captionButton, fileButton);
+    bar.append(lineEl, row, files, livePanel);
 
     const start = document.createElement('button');
     start.className = 'wag-start';
@@ -339,6 +437,38 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       if (lineEl.style.display !== show) {
         lineEl.style.display = show;
         fit();
+      }
+
+      const live = stage.slide.live;
+      const why = bridge === 'up' ? '' : bridge === 'no-browser' ? 'The live browser is not open for driving' : 'The live bridge is not running';
+      const parts = [
+        [showButton, live?.show, 'The deck does this step on the live page'],
+        [turnButton, live?.turn, 'You do it: the deck rings what to click and waits'],
+        [checkButton, live?.check, 'Read the live page and say whether it matches'],
+      ] as const;
+      for (const [b, has, hint] of parts) {
+        b.hidden = !has;
+        b.disabled = busy || bridge !== 'up';
+        b.title = why || hint;
+      }
+      livePanel.style.display = report ? 'block' : 'none';
+      livePanel.replaceChildren();
+      if (report) {
+        const head = document.createElement('b');
+        head.textContent = report.title;
+        livePanel.append(head);
+        for (const item of report.lines) {
+          const row = document.createElement('div');
+          row.className = item.kind;
+          row.textContent = item.text;
+          livePanel.append(row);
+        }
+      } else if (live && why) {
+        // say once, quietly, why the three buttons are off
+        livePanel.style.display = 'block';
+        const note = document.createElement('small');
+        note.textContent = `${why}, so this slide can only be read. Start scripts/live.mjs to drive the page.`;
+        livePanel.append(note);
       }
 
       const offered: Download[] = [...stage.slide.downloads];
@@ -746,6 +876,8 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     const back = target < index;
     cameFrom = index;
     index = target;
+    leaveLive();
+    if (drives && to.slide.live && bridge !== 'up') void meet();
     history.replaceState(null, '', `#${to.slide.name ?? target + 1}`);
     to.layer.style.display = 'block';
 
@@ -898,6 +1030,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     destroy() {
       settle?.();
       hush();
+      leaveLive();
       for (const stage of stages) quiet(stage);
       bar?.remove();
       root.querySelector('.wag-start')?.remove();

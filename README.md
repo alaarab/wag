@@ -59,9 +59,9 @@ The canvas is 1280 x 720. A slide is a small state machine: a state is a set of 
 | Files to take away | `slide({ downloads: [{ label, href }], handout: true })` |
 | Picking an element out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside it |
 
-`decks/demo.ts` uses the first twelve, `decks/scenes/film.ts` is a full-slide scene, and `decks/guide.ts` is a guided deck.
+`decks/demo.ts` uses the first twelve, `decks/scenes/film.ts` is a full-slide scene, `decks/guide.ts` is a narrated walkthrough and `decks/guided.ts` drives a page.
 
-## Guided decks
+## Walkthrough decks
 
 A deck that walks someone through something: it talks, points at regions of a screenshot, and hands out files. A deck with narration or downloads gets a bar under the slide with back and next, play and pause, say again, Auto, Text and Files. `P` plays or pauses the voice, `A` switches Auto, `C` shows the words being said.
 
@@ -85,6 +85,39 @@ python3 -m venv ~/.local/share/wag-voice/venv
 
 **Files.** `downloads` lists files a slide offers, and `shot()` offers its picture by default. `handout: true` adds a Word document of the slide (title, picture, and each point), which `npm run make` writes along with one document of the whole deck. These need `deck({ assets: '/my-deck' })`, the folder under `public/` the made files go in. That folder's `audio/`, `handouts/` and `wag.json` are not committed.
 
+## Guided mode: a deck that drives a real page
+
+A guided slide has up to three buttons in the bar, each one part of `live`:
+
+```ts
+slide({
+  narration: 'Pick the month.',
+  live: {
+    show: [{ choose: 'Marzember', from: { role: 'combobox', name: 'Month' } }],
+    turn: { point: { role: 'combobox', name: 'Month' }, says: 'Choose Marzember. It only changes what is shown.', until: { url: 'month=marzember' } },
+    check: [{ label: 'The open month', read: { page: { css: '#read' }, pick: 'Open month: (\\w+)' }, equals: { value: 'Marzember' } }],
+  },
+}, [...])
+```
+
+- **Show me** does the step on the live page: `go` to an address, `point` at something (a ring and a note), `click`, `choose` an option, `download` a file and keep it under a name, `open` that file, `press` Escape, `wait` for a state.
+- **My turn** rings what to click, shows `says` (what the click will do, in plain words) and waits until the page is as `until` describes. The deck never makes that click.
+- **Check** reads the page or a downloaded workbook and says whether each pair matches, showing both figures when they do not: a figure on the page against a column total in a sheet, debits against credits, one part of the page against another.
+
+The driving is done by a small bridge, `scripts/live.mjs`, which talks to a browser that is already open and signed in, over its debugging port:
+
+```sh
+chromium --remote-debugging-port=9333 &        # or Edge or Chrome, started the same way
+npm run build
+node scripts/live.mjs --serve dist             # then open http://127.0.0.1:5180/?deck=guided
+```
+
+It opens one tab of its own and closes it when it stops. `deck({ app: 'https://the.app' })` is where `go` addresses start; `--app <address>` sends them somewhere else, such as a practice copy of the page. Without the bridge the three buttons are off and the deck still plays. While writing a deck, run the bridge without `--serve` and start the dev server with `WAG_LIVE=http://127.0.0.1:5180 npm run dev`. The bridge needs only Node and Playwright, so the one file can be copied next to any Playwright install.
+
+**What it will not do.** Show me never presses a control whose label says it saves, posts, approves, submits, deletes or sends. `slide()` rejects such a step when the deck is built, and the bridge checks the real control on the page again before every click and refuses, so a wrong label in a deck does not get past it. Those steps are My turn only. The bridge answers only pages on the same machine, and after each Show me the panel lists anything the page itself sent that was not a plain read.
+
+`decks/guided.ts` is a guided deck over a made-up page, `public/guide/app.html`.
+
 ## Decks outside the repo
 
 A deck made from private material should not sit in this repo. Set `WAG_DECKS` to a folder elsewhere: its `*.ts` files are listed and played with the repo's own, and its `public/` folder is served the same way.
@@ -101,7 +134,7 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build
 
 The start page has a **Download .pptx** button per deck. PowerPoint cannot run the interactions, so they are translated: entrances and builds become native animations with the springs baked into keyframes, and hover and click states become hidden slides joined by Morph and reached through mouse-over and click actions.
 
-Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video, working fields, narration, shades and downloads. The exported file opens in PowerPoint without repair, but how it plays in a live slideshow has not been verified.
+Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video, working fields, narration, shades, downloads and live steps. The exported file opens in PowerPoint without repair, but how it plays in a live slideshow has not been verified.
 
 ## Layout
 
@@ -112,4 +145,5 @@ Not carried over: `whileHover` and press tweaks, drag, loops, live scenes, video
 - `app/`: the dev page that lists and plays decks
 - `decks/`: one file per deck
 - `scripts/make.mjs`: writes a guided deck's audio and Word handouts
+- `scripts/live.mjs`: the bridge that drives a real browser for Show me, My turn and Check
 - `spike/`: the script that first tested which hand-written animation XML PowerPoint accepts

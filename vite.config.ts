@@ -41,7 +41,8 @@ function outsideDecks(): Plugin {
       server.middlewares.use((req, res, next) => {
         const file = join(root, normalize(decodeURIComponent((req.url ?? '/').split('?')[0])));
         if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) return next();
-        res.setHeader('Content-Type', TYPES[extname(file)] ?? 'application/octet-stream');
+        // a practice page can stand at an address with no extension, the way an app's pages do
+        res.setHeader('Content-Type', extname(file) ? (TYPES[extname(file)] ?? 'application/octet-stream') : 'text/html');
         createReadStream(file).pipe(res);
       });
     },
@@ -56,7 +57,13 @@ export default defineConfig({
   // decks import 'wag' wherever they live
   resolve: { alias: { wag: join(here, 'src/index.ts') } },
   // fixed port so the links printed by `npm run new` are right
-  server: { port: 5179, strictPort: true, fs: { allow: [here, ...(home ? [home] : [])] } },
+  // WAG_LIVE is where scripts/live.mjs listens, so a guided deck can drive a browser while it is being written
+  server: {
+    port: 5179,
+    strictPort: true,
+    fs: { allow: [here, ...(home ? [home] : [])] },
+    proxy: process.env.WAG_LIVE ? { '/live': process.env.WAG_LIVE } : undefined,
+  },
   // WAG_OUT puts a build somewhere else, for a deck that must stay out of the repo
   build: { outDir: process.env.WAG_OUT ? resolve(process.env.WAG_OUT) : 'dist', emptyOutDir: true, target: 'es2022' },
 });

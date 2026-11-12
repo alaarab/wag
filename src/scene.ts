@@ -197,7 +197,79 @@ export interface Handout {
   points?: { label?: string; text: string }[];
 }
 
+/**
+ * Where something is on the live page a guided deck drives. A plain string is text that shows on
+ * the page. `role` and `name` find a control the way a screen reader names it, `css` is a selector,
+ * `within` narrows the search to a part of the page ('dialog' for the open dialog, or a selector),
+ * and `last` takes the last match instead of the first.
+ */
+export type Target = string | { text?: string; role?: string; name?: string; css?: string; within?: string; last?: boolean; exact?: boolean };
+
+/** How to tell the live page has reached a state: every part given has to hold. */
+export interface Expect {
+  /** the address contains this */
+  url?: string;
+  /** this is showing */
+  see?: Target;
+  /** this is no longer showing */
+  gone?: Target;
+}
+
+/**
+ * One thing "Show me" does on the live page. None of them may press anything that saves, posts,
+ * approves, submits, deletes or sends: those are for the viewer's own hand, as `turn`.
+ */
+export type LiveAction =
+  | { go: string }
+  | { point: Target; note?: string }
+  | { click: Target }
+  | { choose: string; from: Target }
+  | { download: Target; as: string }
+  | { open: string }
+  | { press: 'Escape' }
+  | { wait: Expect };
+
+/**
+ * Something to read for a check: from the live page (`pick` is a pattern whose first group is the
+ * part wanted), from a downloaded workbook (a column of a sheet, `*` in the sheet name takes every
+ * sheet that matches, `where` keeps rows whose other columns have these values), or a fixed value.
+ */
+export type Reading =
+  | { page: Target; pick?: string }
+  | { file: string; sheet: string; column: string; where?: Record<string, string>; take?: 'sum' | 'all' | 'first' }
+  | { value: number | string };
+
+export interface LiveCheck {
+  /** what is being checked, as the viewer should hear it */
+  label: string;
+  read: Reading;
+  equals: Reading;
+  /** compare sizes and ignore the sign, for a figure one side shows as a credit */
+  abs?: boolean;
+}
+
+/** What a guided slide can do on the live page. Each part is one button in the player. */
+export interface Live {
+  /** Show me: the deck does these, in order */
+  show?: LiveAction[];
+  /**
+   * My turn: the deck rings `point`, says what the click will do, and waits until the page is as
+   * `until` describes. The deck never clicks it. `says` is required: the viewer is told plainly
+   * what their click does before they make it.
+   */
+  turn?: { point: Target; says: string; until: Expect };
+  /** Check: read the page or a file and say whether each pair matches */
+  check?: LiveCheck[];
+}
+
+/** Words on a control that mean pressing it changes something. "Show me" refuses such a control. */
+export const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|close the period|reopen)\b/i;
+
+const labelOf = (target: Target) => (typeof target === 'string' ? target : (target.name ?? target.text ?? ''));
+
 export interface SlideOptions {
+  /** drive the live page from this slide: see `Live` */
+  live?: Live;
   /** lets buttons and links route here: `click: { go: 'name' }`, or #name in the address bar */
   name?: string;
   /** shown in the player's bar, and the heading of the slide's handout */
@@ -232,6 +304,7 @@ export interface Slide {
   narration: string[];
   downloads: Download[];
   handout?: Handout;
+  live?: Live;
   hidden: boolean;
   bg?: string;
   elements: Element[];
@@ -259,6 +332,8 @@ export interface DeckOptions {
    * `{ 'Q&A': 'Q and A,' }`. It changes what is heard, never what is shown.
    */
   pronounce?: Record<string, string>;
+  /** the app a guided deck drives: `go` addresses are added to it. The bridge can be pointed elsewhere for a rehearsal. */
+  app?: string;
   width?: number;
   height?: number;
   bg?: string;
@@ -275,6 +350,7 @@ export interface Deck {
   assets?: string;
   auto: boolean;
   pronounce: Record<string, string>;
+  app?: string;
   width: number;
   height: number;
   bg: string;
@@ -423,6 +499,14 @@ export function slide(options: SlideOptions, drafts: Draft[]): Slide {
     if (!states[name]) throw new Error(`wag: step "${name}" is not one of the slide's states`);
   }
 
+  for (const action of options.live?.show ?? []) {
+    const pressed = 'click' in action ? action.click : 'download' in action ? action.download : undefined;
+    if (pressed !== undefined && COMMITS.test(labelOf(pressed).trim())) {
+      throw new Error(`wag: "Show me" may not press "${labelOf(pressed)}". Anything that saves, posts or sends is the viewer's own click: make it \`turn\``);
+    }
+  }
+  if (options.live?.turn && !options.live.turn.says.trim()) throw new Error('wag: `turn` needs `says`: what the viewer\'s click will do, in plain words');
+
   const narration = typeof options.narration === 'string' ? [options.narration] : (options.narration ?? []);
   const handout = options.handout === true ? { intro: narration[0], points: narration.slice(1).map((line) => ({ text: line })) } : options.handout || undefined;
 
@@ -432,6 +516,7 @@ export function slide(options: SlideOptions, drafts: Draft[]): Slide {
     narration,
     downloads: options.downloads ?? [],
     handout,
+    live: options.live,
     hidden: options.hidden ?? false,
     bg: options.bg,
     elements,
@@ -465,6 +550,7 @@ export function deck(options: DeckOptions, slides: Slide[]): Deck {
     assets: options.assets?.replace(/\/$/, ''),
     auto: options.auto ?? false,
     pronounce: options.pronounce ?? {},
+    app: options.app?.replace(/\/$/, ''),
     width: options.width ?? 1280,
     height: options.height ?? 720,
     bg: options.bg ?? '#0f172a',

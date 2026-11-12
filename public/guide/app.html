@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Snack budget watch</title>
+<link rel="icon" href="data:," />
+<style>
+  body { margin: 0; background: #eef1f4; color: #0f172a; font: 15px/1.4 Inter, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px; }
+  h1 { margin: 0 0 4px; font-size: 30px; }
+  .bar { display: flex; gap: 12px; align-items: center; margin: 18px 0; }
+  select, button { font: inherit; padding: 7px 14px; border-radius: 999px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 14px 16px; border-bottom: 1px solid #e2e8f0; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: #f1f5f9; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  dialog { border: 0; border-radius: 14px; padding: 26px; width: 560px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  dialog::backdrop { background: rgba(15,23,42,.4); }
+  #headline { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .danger { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+  #posted { display: none; margin-top: 14px; padding: 10px 14px; border-radius: 10px; background: #dcfce7; color: #166534; font-weight: 600; }
+</style>
+</head>
+<body>
+<!-- A made-up page for the guided demo deck. Nothing here is real, and "Post entry" only shows a banner. -->
+<main>
+  <div style="font-size:13px;color:#64748b;letter-spacing:1px">OPERATIONS</div>
+  <h1>Snack budget watch</h1>
+  <div class="bar">
+    <label for="month">Month</label>
+    <select id="month" aria-label="Month"><option value="febtober">Febtober</option><option value="marzember">Marzember</option></select>
+    <span id="read" style="color:#475569"></span>
+  </div>
+  <table>
+    <thead><tr><th>Item</th><th>State</th><th>Owner</th><th class="n">Amount</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+<dialog id="detail" role="dialog" aria-modal="true">
+  <div id="title" style="font-weight:700;font-size:18px"></div>
+  <p id="about" style="color:#475569"></p>
+  <div id="headline"></div>
+  <div class="bar">
+    <a id="entry" href="correcting-entry.xlsx" download role="button" style="text-decoration:none;color:inherit;padding:7px 14px;border-radius:999px;border:1px solid #cbd5e1;background:#fff">Correcting entry</a>
+    <button id="post" class="danger">Post entry</button>
+    <button id="close">Close</button>
+  </div>
+  <div id="posted">Posted to the made-up ledger.</div>
+</dialog>
+<script>
+  const data = {
+    febtober: [['Biscuits bought on the tea budget', 'Clear', 'Kitchen lead', 0], ['Tea refund on the old shelf code', 'Clear', 'Kitchen lead', 0]],
+    marzember: [['Biscuits bought on the tea budget', 'Blocking', 'Kitchen lead', 412.5], ['Tea refund on the old shelf code', 'Blocking', 'Kitchen lead', -38]],
+  };
+  const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2 });
+  const month = document.getElementById('month');
+  const detail = document.getElementById('detail');
+  function draw() {
+    const which = new URLSearchParams(location.search).get('month') ?? 'febtober';
+    month.value = which;
+    document.getElementById('read').textContent = `Open month: ${month.selectedOptions[0].text}. Read from the made-up ledger.`;
+    const body = document.getElementById('rows');
+    body.replaceChildren();
+    data[which].forEach(([item, state, owner, amount], i) => {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${i + 1}  ${item}</td><td>${state}</td><td>${owner}</td><td class="n">${money(amount)}</td>`;
+      row.addEventListener('click', () => {
+        document.getElementById('title').textContent = `Item ${i + 1}: ${item}`;
+        document.getElementById('about').textContent = 'One correcting line moves it to the right shelf. The entry is prepared here, not posted.';
+        document.getElementById('headline').textContent = money(amount);
+        document.getElementById('posted').style.display = 'none';
+        detail.showModal();
+      });
+      body.append(row);
+    });
+  }
+  month.addEventListener('change', () => { history.replaceState(null, '', `?month=${month.value}`); draw(); });
+  document.getElementById('close').addEventListener('click', () => detail.close());
+  document.getElementById('post').addEventListener('click', () => (document.getElementById('posted').style.display = 'block'));
+  draw();
+</script>
+</body>
+</html>
