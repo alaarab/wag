@@ -295,8 +295,10 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   let visit = 0;
   /** `app` may be a path on this site, as it is for a practice page: the bridge needs the whole address */
   const app = deck.app ? new URL(deck.app, location.origin).href.replace(/\/$/, '') : undefined;
+  // the bridge only answers whoever holds the key it minted at start; the launcher puts it in the address
+  const key = new URLSearchParams(location.search).get('key') ?? '';
   const ask = (what: string, body?: unknown): Promise<any> =>
-    fetch(`/live/${what}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) }).then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))));
+    fetch(`/live/${what}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify(body ?? {}) }).then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))));
   const meet = () =>
     ask('status').then(
       (status: { browser: boolean }) => void ((bridge = status.browser ? 'up' : 'no-browser'), drawBar()),

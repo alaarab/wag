@@ -213,6 +213,8 @@ export interface Expect {
   see?: Target;
   /** this is no longer showing */
   gone?: Target;
+  /** the viewer has downloaded a file whose name fits `like` (`*` stands for anything); checks can then read it as `as` */
+  file?: { like: string; as: string };
 }
 
 /**
@@ -263,7 +265,7 @@ export interface Live {
 }
 
 /** Words on a control that mean pressing it changes something. "Show me" refuses such a control. */
-export const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|close the period|reopen)\b/i;
+export const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|close the period|reopen)\b/i;
 
 const labelOf = (target: Target) => (typeof target === 'string' ? target : (target.name ?? target.text ?? ''));
 

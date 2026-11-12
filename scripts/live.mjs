@@ -16,7 +16,8 @@
 // another program to open a file).
 // It needs only Node and Playwright, so it can be copied next to any Playwright install.
 import { execFile } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -31,11 +32,32 @@ const cdp = option('cdp', 'http://127.0.0.1:9333');
 const serve = option('serve') ? resolve(option('serve')) : null;
 const appOverride = option('app')?.replace(/\/$/, '');
 const filesDir = resolve(option('files', join(tmpdir(), 'wag-live')));
+// where a download made by the viewer's own click is put: their Downloads folder in a real session, a lane folder while building
+const downloadsDir = resolve(option('downloads', filesDir));
 const mayOpen = !args.includes('--no-open');
+// requests a look is allowed to cause besides plain reads, as path prefixes, for an app that reads with POST
+const readsWithPost = (option('reads', '') || '').split(',').filter(Boolean);
+const isLocal = (address) => ['127.0.0.1', 'localhost'].includes(new URL(address).hostname);
 mkdirSync(filesDir, { recursive: true });
+mkdirSync(downloadsDir, { recursive: true });
+// --live: a session the viewer started. The guide drives the one tab they are looking at, and every download is their own click.
+const liveSession = args.includes('--live');
+
+// A new key at every start, written where only the session that launched the bridge reads it. Every
+// request has to carry it, so no other program on this machine can use the bridge.
+const token = randomBytes(24).toString('hex');
+const tokenFile = resolve(option('token', join(filesDir, 'bridge.token')));
+writeFileSync(tokenFile, token, { mode: 0o600 });
+
+// every command and every refusal, one line each
+const logFile = resolve(option('log', join(filesDir, 'bridge.log')));
+const record = (entry) => appendFileSync(logFile, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 
 // Keep in step with COMMITS in src/scene.ts.
-const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|close the period|reopen)\b/i;
+const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|close the period|reopen)\b/i;
+
+// What a button in a dialog may say for the guide to press it: it only shows, hides, reads again or downloads.
+const LOOKS = /^(close|x|×|cancel|back|next|previous|show|hide|expand|collapse|how to fix|how it is measured|refresh|open|view|details?|more|less|sort|filter|full detail|download|correcting entry|split by source)\b/i;
 
 class Refused extends Error {}
 
@@ -46,19 +68,95 @@ let page = null;
 /** requests other than plain reads that the page made while the deck was acting, for the viewer to see */
 let sent = [];
 
+/** closing the tab on the way out is only right for a tab the bridge opened for itself */
+let ownsTab = true;
+
+/** The tab the viewer is looking at: the one that is showing, preferring one already on the app. */
+async function visibleTab() {
+  const showing = [];
+  for (const candidate of browser.contexts()[0].pages()) {
+    const state = await candidate.evaluate(() => ({ visible: document.visibilityState === 'visible', focused: document.hasFocus() })).catch(() => null);
+    if (state?.visible) showing.push({ candidate, focused: state.focused });
+  }
+  const host = appOverride ? new URL(appOverride).host : null;
+  return (showing.find((s) => host && s.candidate.url().includes(host)) ?? showing.find((s) => s.focused) ?? showing[0])?.candidate ?? null;
+}
+
 async function tab() {
   if (!browser?.isConnected()) {
     browser = await chromium.connectOverCDP(cdp, { timeout: 8000 });
     page = null;
   }
   if (!page || page.isClosed()) {
-    page = await browser.contexts()[0].newPage();
+    page = (liveSession && (await visibleTab())) || (await browser.contexts()[0].newPage());
+    ownsTab = !liveSession;
     page.on('request', (request) => {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
     });
+    // what the viewer does with their own mouse, so a guide can carry on from where they went
+    await page.addInitScript(watchInPage);
+    await page.evaluate(watchInPage).catch(() => {});
+    page.on('download', (download) => void keepDownload(download));
   }
   await page.bringToFront().catch(() => {});
   return page;
+}
+
+/** Runs in the page: remembers the viewer's last few real clicks. */
+function watchInPage() {
+  if (window.__wagSeen) return;
+  window.__wagSeen = [];
+  addEventListener(
+    'click',
+    (event) => {
+      if (!event.isTrusted || window.__wagActing) return;
+      const el = event.target instanceof Element ? (event.target.closest('button, a, [role], tr, label') ?? event.target) : null;
+      if (!el) return;
+      window.__wagSeen.push({ what: (el.getAttribute('aria-label') || el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 90), at: Date.now() });
+      window.__wagSeen = window.__wagSeen.slice(-5);
+    },
+    true
+  );
+}
+
+/** Every download in the guide's tab is kept, whoever clicked: by the name the guide asked for, or the file's own. */
+let wanted = null;
+let lastDownload = null;
+async function keepDownload(download) {
+  const name = wanted?.as ? wanted.as + extname(download.suggestedFilename()) : download.suggestedFilename();
+  const file = join(wanted?.dir ?? downloadsDir, name);
+  await download.saveAs(file).catch(() => {});
+  lastDownload = { name: download.suggestedFilename(), file, at: Date.now() };
+  if (wanted?.as) kept.set(wanted.as, file);
+  kept.set(download.suggestedFilename(), file);
+}
+
+/**
+ * While the guide itself clicks, the page may only read. Anything else it tries to send is
+ * stopped here and reported, so on a real system a guide's click cannot change anything even
+ * if the control was mislabelled. Pages on this machine (practice pages) are left alone.
+ */
+async function lookOnly(work) {
+  if (isLocal(page.url())) return work();
+  const stopped = [];
+  const gate = (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method()) || readsWithPost.some((prefix) => path.startsWith(prefix))) return route.continue();
+    stopped.push(`${request.method()} ${path}`);
+    return route.abort();
+  };
+  await page.route('**/*', gate);
+  try {
+    await page.evaluate(() => (window.__wagActing = true)).catch(() => {});
+    const result = await work();
+    await page.waitForTimeout(1200);
+    if (stopped.length) throw new Refused(`That click tried to send ${stopped.join(', ')}, which is more than a look, so it was stopped. That step is yours.`);
+    return result;
+  } finally {
+    await page.evaluate(() => (window.__wagActing = false)).catch(() => {});
+    await page.unroute('**/*', gate).catch(() => {});
+  }
 }
 
 function locate(target) {
@@ -81,10 +179,21 @@ async function guard(found) {
   const control = await found.evaluate((el) => {
     const pressed = el.closest('button, [role="button"], [role="menuitem"], input[type="submit"], input[type="button"], a') ?? el;
     const label = pressed.getAttribute('aria-label') || pressed.innerText || pressed.value || '';
-    return { label: label.trim().replace(/\s+/g, ' ').slice(0, 80), submits: pressed.type === 'submit' && Boolean(pressed.closest('form')) };
+    return {
+      label: label.trim().replace(/\s+/g, ' ').slice(0, 80),
+      submits: pressed.type === 'submit' && Boolean(pressed.closest('form')),
+      button: pressed !== el || el.matches('button, [role="button"], input') ? pressed.matches('button, [role="button"], [role="menuitem"], input') : false,
+      inDialog: Boolean(pressed.closest('[role="dialog"], dialog')),
+      // a control that only opens and shuts part of the page, or switches a view
+      opens: pressed.hasAttribute('aria-expanded') || ['tab', 'combobox', 'option'].includes(pressed.getAttribute('role') ?? ''),
+    };
   });
   if (control.submits || COMMITS.test(control.label)) {
-    throw new Refused(`"${control.label}" changes something, so the deck will not press it. That click is yours.`);
+    throw new Refused(`"${control.label}" changes something, so the guide will not press it. That click is yours.`);
+  }
+  // inside a dialog, a button has to be one the guide knows only looks. Anything else is not pressed, and the reason is given.
+  if (control.inDialog && control.button && !control.opens && !LOOKS.test(control.label)) {
+    throw new Refused(`The guide cannot tell what "${control.label || 'that button'}" does, so it will not press it. That click is yours.`);
   }
 }
 
@@ -137,6 +246,12 @@ async function holds(expect) {
   if (expect.url && !page.url().includes(expect.url)) return false;
   if (expect.see && !(await locate(expect.see).isVisible().catch(() => false))) return false;
   if (expect.gone && (await locate(expect.gone).isVisible().catch(() => false))) return false;
+  if (expect.file) {
+    // a file whose name fits, downloaded since this wait began
+    const fits = new RegExp(`^${expect.file.like.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`, 'i');
+    if (!lastDownload || lastDownload.at < (expect.since ?? 0) || !fits.test(lastDownload.name)) return false;
+    kept.set(expect.file.as, lastDownload.file);
+  }
   return true;
 }
 
@@ -169,7 +284,7 @@ async function act(action, base) {
     await guard(found);
     await page.waitForTimeout(700);
     await clear();
-    await found.click({ timeout: 15000 });
+    await lookOnly(() => found.click({ timeout: 15000 }));
     return `Clicked ${words(action.click)}`;
   }
   if ('choose' in action) {
@@ -186,15 +301,20 @@ async function act(action, base) {
     return `Chose ${action.choose}`;
   }
   if ('download' in action) {
+    if (liveSession) throw new Refused('In a live session a download is your own click, so the file lands in your Downloads. The guide rings the button and waits.');
     const found = await ring(action.download);
     await guard(found);
     await page.waitForTimeout(700);
     await clear();
-    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 45000 }), found.click({ timeout: 15000 })]);
-    const file = join(filesDir, action.as + (extname(action.as) ? '' : extname(download.suggestedFilename())));
-    await download.saveAs(file);
-    kept.set(action.as, file);
-    return `Downloaded ${download.suggestedFilename()}`;
+    wanted = { as: action.as, dir: filesDir };
+    try {
+      const [download] = await Promise.all([page.waitForEvent('download', { timeout: 45000 }), found.click({ timeout: 15000 })]);
+      const until = Date.now() + 15000;
+      while (!kept.has(action.as) && Date.now() < until) await page.waitForTimeout(200);
+      return `Downloaded ${download.suggestedFilename()}`;
+    } finally {
+      wanted = null;
+    }
   }
   if ('open' in action) {
     const file = fileFor(action.open);
@@ -325,6 +445,93 @@ async function check(item) {
 
 // ---- what the player asks for -----------------------------------------------------------------
 
+let turnBegan = 0;
+
+// ---- small commands, for a live session ---------------------------------------------------------
+
+const brief = (text, most = 1500) => {
+  const tidy = text.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+  return tidy.length > most ? `${tidy.slice(0, most)} … (${tidy.length - most} more characters)` : tidy;
+};
+
+/** Where the page is now and what the viewer last did with their own mouse. */
+async function whereNow() {
+  const seen = await page.evaluate(() => {
+    const dialog = [...document.querySelectorAll('[role="dialog"], dialog[open]')].filter((d) => d.getClientRects().length).at(-1);
+    const out = {
+      title: document.title,
+      dialog: dialog ? (dialog.getAttribute('aria-label') || dialog.querySelector('h1,h2,h3,b')?.textContent || 'a dialog').trim().slice(0, 120) : null,
+      scrolled: Math.round(scrollY),
+      viewerClicks: (window.__wagSeen ?? []).map((c) => `${c.what} (${Math.round((Date.now() - c.at) / 1000)} s ago)`),
+      pointing: Boolean(window.__wagClear),
+    };
+    window.__wagSeen = [];
+    return out;
+  });
+  return { address: page.url(), ...seen, lastDownload: lastDownload ? { name: lastDownload.name, secondsAgo: Math.round((Date.now() - lastDownload.at) / 1000) } : null };
+}
+
+const commands = {
+  where: () => whereNow(),
+  async goto({ to, app }) {
+    return { did: await act({ go: to }, app), ...(await whereNow()) };
+  },
+  /** What on the page fits these words: up to `most` things, each with what it is and what it says. */
+  async find({ text, most = 8 }) {
+    const found = page.getByText(text, { exact: false }).locator('visible=true');
+    const count = await found.count();
+    const hits = [];
+    for (let i = 0; i < Math.min(count, most); i++) {
+      hits.push(await found.nth(i).evaluate((el) => {
+        const control = el.closest('button, a, [role="button"], [role="tab"], [role="combobox"], tr, th, td, h1, h2, h3, label');
+        const box = el.getBoundingClientRect();
+        return { says: el.innerText.trim().replace(/\s+/g, ' ').slice(0, 110), is: (control?.getAttribute('role') || control?.tagName || el.tagName).toLowerCase(), onScreen: box.top >= 0 && box.bottom <= innerHeight, inDialog: Boolean(el.closest('[role="dialog"], dialog')) };
+      }));
+    }
+    return { count, hits };
+  },
+  async read({ target, most }) {
+    // with no target: the open dialog if there is one, since that is what the viewer is looking at; otherwise the page
+    const dialog = page.locator('[role="dialog"], dialog[open]').locator('visible=true').last();
+    const found = target ? locate(target) : (await dialog.count()) ? dialog : page.locator('main').first();
+    return { text: brief(await found.innerText({ timeout: 10000 }), most) };
+  },
+  async highlight({ target, note }) {
+    return { did: await act({ point: target, note }) };
+  },
+  async scroll({ target, by }) {
+    if (target) await locate(target).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    else await page.mouse.wheel(0, by ?? 600);
+    return { did: 'Scrolled', scrolled: await page.evaluate(() => Math.round(scrollY)) };
+  },
+  async click({ target }) {
+    return { did: await act({ click: target }), ...(await whereNow()) };
+  },
+  async choose({ option, from }) {
+    return { did: await act({ choose: option, from }), ...(await whereNow()) };
+  },
+  async close() {
+    return { did: await act({ press: 'Escape' }) };
+  },
+  async download({ target, as }) {
+    return { did: await act({ download: target, as }), file: kept.get(as) };
+  },
+  async check({ items }) {
+    const results = [];
+    for (const item of items) results.push(await check(item));
+    return { results };
+  },
+  async screenshot({ as = `shot-${Date.now()}` }) {
+    const file = join(filesDir, `${as}.png`);
+    await page.screenshot({ path: file });
+    return { file };
+  },
+  async clear() {
+    await clear();
+    return { did: 'Cleared' };
+  },
+};
+
 /** one request at a time: two buttons pressed together must not drive the page at once */
 let line = Promise.resolve();
 const inTurn = (work) => (line = line.then(work, work));
@@ -351,8 +558,11 @@ const routes = {
       await tab();
       try {
         // the ring goes up once; asking again only keeps waiting
-        if (!again) await ring(live.turn.point, `Your turn. ${live.turn.says}`, '#fbbf24');
-        const reached = await until(live.turn.until, 20000);
+        if (!again) {
+          await ring(live.turn.point, `Your turn. ${live.turn.says}`, '#fbbf24');
+          turnBegan = Date.now();
+        }
+        const reached = await until({ ...live.turn.until, since: turnBegan }, 20000);
         if (reached) await clear();
         return { ok: true, reached };
       } catch (error) {
@@ -367,6 +577,19 @@ const routes = {
       return { ok: true, results };
     }),
   clear: () => inTurn(async () => ({ ok: true, cleared: Boolean(await clear()) })),
+  /** One small command from a live session: { cmd: 'highlight', target: ..., note: ... }. Answers in about a second. */
+  cmd: ({ cmd, ...rest }) =>
+    inTurn(async () => {
+      const began = Date.now();
+      if (!commands[cmd]) return { ok: false, why: `Unknown command "${cmd}". Known: ${Object.keys(commands).join(', ')}` };
+      try {
+        await tab();
+        const answer = await commands[cmd](rest);
+        return { ok: true, ...answer, ms: Date.now() - began };
+      } catch (error) {
+        return { ok: false, refused: error instanceof Refused, why: error.message.split('\n')[0], ms: Date.now() - began };
+      }
+    }),
 };
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
@@ -381,9 +604,16 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(403);
       return res.end();
     }
+    if (req.headers['x-wag-key'] !== token) {
+      record({ route, refused: 'no key' });
+      res.writeHead(401);
+      return res.end();
+    }
     let body = '';
     for await (const chunk of req) body += chunk;
-    const answer = await routes[route](body ? JSON.parse(body) : {}).catch((error) => ({ ok: false, why: error.message.split('\n')[0] }));
+    const asked = body ? JSON.parse(body) : {};
+    const answer = await routes[route](asked).catch((error) => ({ ok: false, why: error.message.split('\n')[0] }));
+    if (route !== 'status') record({ route, asked: route === 'cmd' ? asked : { steps: (asked.live?.show ?? []).length || undefined, turn: asked.live?.turn?.says, checks: (asked.live?.check ?? []).length || undefined }, ok: answer.ok, refused: answer.refused || undefined, why: answer.why, done: answer.done ?? answer.did, sent: answer.sent?.length ? answer.sent : undefined, ms: answer.ms });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(answer));
   }
@@ -403,12 +633,14 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`wag live bridge on http://127.0.0.1:${port}${serve ? `, serving ${serve}` : ''}`);
-  console.log(`Browser: ${cdp}${appOverride ? `, app sent to ${appOverride}` : ''}. Files: ${filesDir}. Ctrl+C stops it and closes its tab.`);
+  console.log(`Browser: ${cdp}${appOverride ? `, app sent to ${appOverride}` : ''}. Files: ${filesDir}. Key: ${tokenFile}. Log: ${logFile}.`);
+  console.log(liveSession ? 'Live session: driving the tab that is showing; downloads are the viewer\'s own click. Ctrl+C stops it and leaves the tab open.' : 'Ctrl+C stops it and closes its tab.');
+  record({ started: true, live: liveSession, cdp, app: appOverride ?? null });
 });
 
 const stop = async () => {
   await clear();
-  await page?.close().catch(() => {});
+  if (ownsTab) await page?.close().catch(() => {});
   await browser?.close().catch(() => {});
   process.exit(0);
 };
