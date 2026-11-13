@@ -14,13 +14,14 @@
 // (a Piper voice; default the medium voice under ~/.local/share/wag-voice), --pronounce FILE (a
 // JSON object of written form to spoken form), --label TEXT (shown on the console, such as
 // "PRIVATE: production data"), --deck DIR (a built deck to serve, so its buttons work in this session),
-// --ask COMMAND (what answers a question typed in the deck's Ask box or on the console: see "questions").
+// --ask COMMAND (what answers a question typed in the deck's Ask box or on the console: see "questions"),
+// --walk NAME (play that deck's steps on the page itself, with a bar there to step and to ask: see "the walk").
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir } from 'node:os';
-import { extname, join, normalize, resolve } from 'node:path';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 
@@ -37,6 +38,14 @@ const label = option('label', '');
 // a built deck folder to serve too, so a guided deck's buttons reach the bridge through this session
 const deckDir = option('deck') ? resolve(option('deck')) : null;
 const askCommand = option('ask');
+const walkName = option('walk');
+// one session to a port: a second start must not take the first one's key file or start a second bridge
+await new Promise((free, taken) => {
+  const probe = http.createServer().once('error', taken).once('listening', () => probe.close(free)).listen(port, '127.0.0.1');
+}).catch(() => {
+  console.error(`Port ${port} is in use: a session is already running there. End that one first, or start this one with another --port.`);
+  process.exit(1);
+});
 mkdirSync(join(dir, 'audio'), { recursive: true });
 mkdirSync(resolve(keyFile, '..'), { recursive: true });
 const token = randomBytes(24).toString('hex');
@@ -58,7 +67,12 @@ if (bridgeCommand) {
     } catch {
       return;
     }
-    if (said.ready) bridgeReady = true;
+    if (said.ready) {
+      bridgeReady = true;
+      if (walkName) void startWalk(walkName).then((started) => started.ok || console.log(`The walk did not start: ${started.why}`));
+    }
+    // something pressed or asked in the bar on the page
+    if (said.event) return void onPage(said.event).catch((error) => console.log(`The bar: ${error.message.split('\n')[0]}`));
     asked.get(said.id)?.(said.answer);
     asked.delete(said.id);
   });
@@ -143,7 +157,7 @@ function next() {
   for (const el of document.querySelectorAll('.now')) el.classList.remove('now');
   playing.el.classList.add('now');
   const done = () => { playing = null; next(); };
-  if (!sound) return done();
+  if (!sound || playing.line.onPage) return done();
   if (playing.line.audio) {
     audio.src = '/audio/' + playing.line.audio + '?key=' + key; audio.onended = done; audio.onerror = done;
     audio.play().catch(() => { start.style.display = 'block'; queue.unshift(playing); playing = null; });
@@ -236,10 +250,305 @@ async function stopRecording() {
 
 /** Show a line and speak it: it is heard as soon as its audio exists, which for a warm voice is a fraction of a second. */
 let spokenLines = 0;
-async function sayLine(text) {
+async function sayLine(text, { caption = true } = {}) {
   const id = `line-${String(++spokenLines).padStart(4, '0')}`;
   const made = await speak(id, text);
-  return add({ who: 'guide', text, audio: made.seconds ? `${id}.wav` : undefined, seconds: made.seconds });
+  // on the page too, when it has the bar: as text, and by voice there so no second tab is needed for sound
+  let onPage = false;
+  if (caption) await draw({ ...(view ? {} : { head: 'Guide', next: '' }), caption: answering && saidNow.length ? `${saidNow.join(' ')} ${text}` : text });
+  if (view) {
+    if (answering) saidNow.push(text);
+    if (!sound) onPage = true;
+    else if (made.seconds) onPage = Boolean((await toBridge('cmd', { cmd: 'speak', audio: readFileSync(join(dir, 'audio', `${id}.wav`)).toString('base64') }))?.played);
+  }
+  return add({ who: 'guide', text, audio: made.seconds ? `${id}.wav` : undefined, seconds: made.seconds, onPage: onPage || undefined });
+}
+
+// ---- the bar on the page, and the walk --------------------------------------------------------------
+// The bridge draws a bar in the tab it drives: the line being said, Back and Next, and a box to ask in
+// (F2). The bar only reports what was pressed; what that means is decided here. --walk plays a deck's
+// steps on that page: each step's lines are shown and spoken, its Show me is done, its My turn is
+// waited for and its Check is read out, and then it waits for Next (F8) unless Auto is on. Asking
+// pauses it. Continue (F8 again) puts the page back on the step and carries on from there.
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+/** what the bar shows, or null while the page has no bar */
+let view = null;
+let sound = true;
+/** a walk that is running: its steps and where it is */
+let walk = null;
+/** stopped for a question: nothing moves until Continue */
+let paused = false;
+/** the question being answered or just answered, and what the guide has said to it so far */
+let question = '';
+let saidNow = [];
+/** where the page was when the question came (its address and its open dialog), and what answering did to it */
+let place = null;
+let moved = { clicked: false, went: false };
+
+async function draw(patch) {
+  view = { ...(view ?? {}), ...patch, sound };
+  const drawn = await toBridge('cmd', { cmd: 'bar', state: view });
+  return Boolean(drawn?.shown);
+}
+
+/** how long a line takes to read, for a step with no voice */
+const reading = (text) => Math.max(3, Math.round(text.split(/\s+/).length / 2.6));
+
+/** Say one of a deck's own lines: its made audio on the page when there is some, otherwise a fresh voice. Gives the seconds it takes. */
+async function deckLine(line) {
+  const file = line.audio && join(walk.dir, 'audio', line.audio);
+  if (sound && file && existsSync(file)) {
+    const got = await toBridge('cmd', { cmd: 'speak', audio: readFileSync(file).toString('base64') });
+    if (got?.played) {
+      add({ who: 'guide', text: line.text, seconds: line.seconds, onPage: true });
+      return line.seconds ?? got.seconds ?? reading(line.text);
+    }
+  }
+  if (!sound) {
+    add({ who: 'guide', text: line.text, onPage: true });
+    return reading(line.text);
+  }
+  return (await sayLine(line.text, { caption: false })).seconds ?? reading(line.text);
+}
+
+const stepText = (step) => step.lines.map((line) => line.text).join(' ') || step.title;
+const stepHead = () => `${walk.title} \u00b7 ${walk.at + 1} of ${walk.steps.length} \u00b7 ${walk.steps[walk.at].title}`;
+
+function findWalk(name) {
+  if (!deckDir) return null;
+  const direct = join(deckDir, name, 'walk.json');
+  if (existsSync(direct)) return direct;
+  // a deck may keep its files under another folder name
+  for (const folder of readdirSync(deckDir, { withFileTypes: true })) {
+    const file = join(deckDir, folder.name, 'walk.json');
+    if (folder.isDirectory() && existsSync(file) && JSON.parse(readFileSync(file, 'utf8')).deck === name) return file;
+  }
+  return null;
+}
+
+async function startWalk(name) {
+  const file = findWalk(name);
+  if (!file) return { ok: false, why: `No walk for "${name}". Run "npm run make ${name}", build, and start the session with --deck.` };
+  const made = JSON.parse(readFileSync(file, 'utf8'));
+  walk = { ...made, dir: dirname(file), at: 0, run: 0, auto: false, done: false, shown: -1, report: '', timer: null };
+  paused = false;
+  question = '';
+  // the bar needs a tab the guide may act in: the first address the steps go to, in a tab of its own if need be
+  const first = walk.steps.flatMap((step) => step.live?.show ?? []).find((action) => 'go' in action)?.go;
+  if (first) {
+    const there = await toBridge('cmd', { cmd: 'goto', to: first, app: walk.app });
+    if (!there?.ok) return { ok: false, why: there?.why ?? 'the page did not open' };
+  }
+  add({ who: 'note', text: `Walk: ${walk.title}, ${walk.steps.length} steps. F8 or Next goes on, F2 asks.` });
+  void arrive(0);
+  return { ok: true, steps: walk.steps.length };
+}
+
+async function stopWalk() {
+  if (walk) {
+    walk.run++;
+    clearTimeout(walk.timer);
+  }
+  walk = null;
+  paused = false;
+  question = '';
+  await toBridge('cmd', { cmd: 'hush' });
+  await toBridge('cmd', { cmd: 'bar', state: null });
+  view = null;
+  return { ok: true };
+}
+
+/**
+ * Come to a step: show its words, say them while the page moves, wait for the viewer's own click if
+ * it has one, read its check, then wait. `again` is for a step that was cut short by a question:
+ * what it already did on the page is not done twice.
+ */
+async function arrive(at, { again = false } = {}) {
+  const run = ++walk.run;
+  const mine = () => walk && walk.run === run && !paused;
+  clearTimeout(walk.timer);
+  Object.assign(walk, { at, done: false, report: '' });
+  const step = walk.steps[at];
+  const text = stepText(step);
+  const last = at === walk.steps.length - 1;
+  await toBridge('cmd', { cmd: 'hush' });
+  await draw({ head: stepHead(), caption: text, asked: '', mark: '', back: at > 0, next: last ? '' : 'Next (F8)', auto: walk.auto, busy: false });
+  add({ who: 'note', text: `Step ${at + 1} of ${walk.steps.length}: ${step.title}` });
+  // the page moves while the line is said
+  // noted when it lands, even if a question has cut the step short by then; said again, the step waits for that same move
+  let moving = again && walk.moving?.at === at ? walk.moving.done : null;
+  if (!moving && step.live?.show && !(again && walk.shown === at)) {
+    moving = toBridge('show', { live: { show: step.live.show }, app: walk.app });
+    walk.moving = { at, done: moving };
+    void moving.then((did) => did?.ok && walk && walk.at === at && (walk.shown = at));
+  }
+  for (const line of step.lines) {
+    if (!mine()) return;
+    const seconds = await deckLine(line);
+    for (const end = Date.now() + seconds * 1000; Date.now() < end && mine(); ) await sleep(150);
+  }
+  const shown = moving && (await moving);
+  if (!mine()) return;
+  let under = '';
+  if (shown && !shown.ok) {
+    under = shown.refused ? `The guide stopped here: ${shown.why}` : `The page did not get there: ${shown.why}`;
+    keep('Show me on this step', under);
+    await draw({ caption: `${text}\n\n${under}` });
+  }
+  if (step.live?.turn && !(shown && !shown.ok)) {
+    await draw({ caption: `${text}\n\nYour click: ${step.live.turn.says}`, mark: 'Waiting for your click' });
+    let got = await toBridge('turn', { live: { turn: step.live.turn }, app: walk.app });
+    while (mine() && got?.ok && !got.reached) got = await toBridge('turn', { live: { turn: step.live.turn }, app: walk.app, again: true });
+    if (!mine()) return;
+    if (!got?.ok) under = `The guide could not wait for that click: ${got?.why ?? 'no answer'}`;
+    await draw({ caption: under ? `${text}\n\n${under}` : text, mark: '' });
+  }
+  if (step.live?.check && !(shown && !shown.ok)) {
+    const read = await toBridge('check', { live: { check: step.live.check } });
+    if (!mine()) return;
+    const all = read?.results ?? [];
+    const results = all.filter((r) => !r.skipped);
+    const bad = results.filter((r) => !r.ok);
+    walk.report = !read?.ok
+      ? `Check: no answer from the page (${read?.why ?? 'unknown'})`
+      : !results.length
+        ? ''
+        : !bad.length
+          ? `Check: ${results.length === 1 ? `${results[0].label}: ${results[0].got}${results[0].want ? ` matches ${results[0].want}` : ''}` : `all ${results.length} match`}.`
+          : `Check: ${bad.map((r) => `${r.label}: ${r.got}${r.want ? ` does not match ${r.want}` : ''}`).join('; ')}.`;
+    if (walk.report) {
+      await draw({ caption: `${text}\n\n${walk.report}` });
+      if (bad.length) keep('Check on this step', walk.report);
+      const seconds = (await sayLine(bad.length ? `Check: ${bad.length} of ${results.length} do not match.` : results.length === 1 ? 'Check: it matches.' : `Check: all ${results.length} match.`, { caption: false })).seconds ?? 2;
+      for (const end = Date.now() + seconds * 1000; Date.now() < end && mine(); ) await sleep(150);
+      if (!mine()) return;
+    }
+  }
+  walk.done = true;
+  if (last) return void (await draw({ mark: 'End of the walkthrough' }));
+  if (walk.auto) walk.timer = setTimeout(() => mine() && void arrive(at + 1), 2500);
+}
+
+/** Stop for a question: the voice, the timer and whatever the step was in the middle of. */
+async function pause() {
+  if (paused) return;
+  paused = true;
+  if (walk) clearTimeout(walk.timer);
+  await toBridge('cmd', { cmd: 'hush' });
+  if (view) await draw({ mark: 'Paused', next: 'Continue (F8)' });
+}
+
+/**
+ * Put the page back where it was when the question came: shut what answering opened, go back to
+ * the address, and do the step's Show me again only if that is not enough (answering went to
+ * another page, or shut the dialog the step had open).
+ */
+async function putBack() {
+  if (!place || !(moved.clicked || moved.went)) return;
+  let now = await toBridge('cmd', { cmd: 'where' });
+  for (let i = 0; i < 3 && now?.ok && now.dialog && now.dialog !== place.dialog; i++) {
+    await toBridge('cmd', { cmd: 'close' });
+    now = await toBridge('cmd', { cmd: 'where' });
+  }
+  if (now?.ok && now.address !== place.address) await toBridge('cmd', { cmd: 'goto', to: place.address });
+  const step = walk?.steps[walk.at];
+  if (step?.live?.show && (moved.went || (now?.dialog ?? null) !== place.dialog)) {
+    const did = await toBridge('show', { live: { show: step.live.show }, app: walk.app });
+    if (did?.ok) walk.shown = walk.at;
+    walk.moving = null;
+  }
+  await toBridge('cmd', { cmd: 'clear' });
+  moved = { clicked: false, went: false };
+}
+
+/** Continue: the page goes back to the step it was on, and the walk carries on from there. */
+let resuming = false;
+async function resume() {
+  if (resuming) return;
+  resuming = true;
+  question = '';
+  saidNow = [];
+  try {
+    if (view && (moved.clicked || moved.went)) await draw({ asked: '', mark: 'Going back', busy: true, next: '', ...(walk ? { caption: stepText(walk.steps[walk.at]) } : {}) });
+    await putBack();
+  } finally {
+    resuming = false;
+  }
+  paused = false;
+  if (!walk) return void (await draw({ caption: '', asked: '', mark: '', next: '', busy: false }));
+  const step = walk.steps[walk.at];
+  // a step that was cut short is said again from its top, without doing twice what it already did on the page
+  if (!walk.done) return void arrive(walk.at, { again: true });
+  const last = walk.at === walk.steps.length - 1;
+  await draw({ head: stepHead(), caption: walk.report ? `${stepText(step)}\n\n${walk.report}` : stepText(step), asked: '', mark: last ? 'End of the walkthrough' : '', busy: false, next: last ? '' : 'Next (F8)' });
+  const run = walk.run;
+  if (walk.auto && !last) walk.timer = setTimeout(() => walk && walk.run === run && !paused && void arrive(walk.at + 1), 2500);
+}
+
+/** Next, or F8: Continue after a question, otherwise the next step. */
+async function onward() {
+  if (answering) return;
+  if (paused || question) return resume();
+  if (!walk || walk.at >= walk.steps.length - 1) return;
+  return arrive(walk.at + 1);
+}
+
+/** A question typed in the bar on the page. */
+async function pageAsk(text) {
+  if (answering || !text.trim()) return;
+  await pause();
+  // a follow-up keeps the place the first question was asked from
+  if (!question) {
+    moved = { clicked: false, went: false };
+    const now = await toBridge('cmd', { cmd: 'where' });
+    place = now?.ok ? { address: now.address, dialog: now.dialog ?? null } : null;
+  }
+  question = text;
+  await draw({ asked: text, caption: 'Looking at the page.', mark: 'Looking', busy: true, next: '' });
+  const step = walk?.steps[walk.at];
+  const where = step ? { deck: walk.title, slide: step.title, at: `step ${walk.at + 1} of ${walk.steps.length}`, line: stepText(step), report: walk.report || undefined } : {};
+  const result = await answer(text, { ...where, bar: true });
+  if (!result.ok) {
+    await draw({ caption: `No answer this time: ${result.why}` });
+    keep(`Asked: "${text}"`, `No answer came back: ${result.why}`);
+  }
+  await draw({ mark: 'Paused', busy: false, next: 'Continue (F8)' });
+}
+
+async function onPage(event) {
+  if (event.kind === 'ask') return pageAsk(event.text ?? '');
+  if (event.kind === 'askopen') return pause();
+  // the box was shut without a question: carry on
+  if (event.kind === 'askclose') return answering || question ? undefined : resume();
+  if (event.kind === 'next') return onward();
+  if (event.kind === 'back') return walk && !answering && !paused ? arrive(Math.max(0, walk.at - 1)) : undefined;
+  if (event.kind === 'sound') {
+    sound = !sound;
+    if (!sound) await toBridge('cmd', { cmd: 'hush' });
+    return void (await draw({}));
+  }
+  if (event.kind === 'auto' && walk) {
+    walk.auto = !walk.auto;
+    await draw({ auto: walk.auto });
+    const run = walk.run;
+    if (walk.auto && walk.done && !paused && walk.at < walk.steps.length - 1) walk.timer = setTimeout(() => walk && walk.run === run && !paused && void arrive(walk.at + 1), 2500);
+    if (!walk.auto) clearTimeout(walk.timer);
+  }
+}
+
+// ---- kept for later ---------------------------------------------------------------------------------
+// What the guide could not answer from the pages, and anything it would not do, in one list in the
+// session folder, to read after the meeting.
+
+function keep(what, why) {
+  const file = join(dir, 'open-questions.md');
+  if (!existsSync(file)) writeFileSync(file, `# Open questions and refusals\n\nFrom the live session that began ${new Date(began).toLocaleString('en-US')}. Each line: when, where in the walkthrough, what was asked or tried, and why it is open.\n\n`);
+  const tidy = (text) => text.replace(/\s+/g, ' ').trim().replace(/[.]$/, '');
+  const where = walk ? `step ${walk.at + 1} (${walk.steps[walk.at].title})` : 'no walkthrough running';
+  appendFileSync(file, `- ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, ${where}. ${tidy(what)}. ${tidy(why)}.\n`);
+  add({ who: 'note', text: `Kept for later: ${tidy(why)}.` });
+  return { ok: true, file };
 }
 
 // ---- questions ----------------------------------------------------------------------------------
@@ -260,6 +569,7 @@ const promptFor = (text, where = {}, page) =>
     where.words && `On the slide: ${where.words}`,
     where.buttons && `This step's buttons. ${where.buttons}`,
     where.report && `The last result shown to them: ${where.report}`,
+    where.bar && 'They asked from the bar on the page itself, with the walkthrough paused. Your guide say shows there. When they continue, the page is put back on the step, so you need not put it back.',
     page?.ok && `The page now: ${page.address}${page.dialog ? `, with the dialog "${page.dialog}" open` : ''}${page.viewerClicks?.length ? `. Their last clicks: ${page.viewerClicks.join('; ')}` : ''}.`,
     `They ask: ${text}`,
   ]
@@ -271,6 +581,7 @@ async function answer(text, where) {
   if (!text?.trim()) return { ok: false, why: 'There was no question.' };
   if (answering) return { ok: false, why: 'Still answering the last question.' };
   answering = true;
+  saidNow = [];
   add({ who: 'you', text });
   const from = count;
   try {
@@ -323,7 +634,31 @@ const server = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     const live = /^\/live\/(\w+)$/.exec(url.pathname)?.[1];
-    if (live) return json(await toBridge(live, JSON.parse(body || '{}')));
+    if (live) {
+      const sent = JSON.parse(body || '{}');
+      const got = await toBridge(live, sent);
+      if (answering) {
+        // while a question is being answered: whether the page was moved, and anything the bridge would not do
+        if (live === 'cmd' && got?.ok && ['click', 'close'].includes(sent.cmd)) moved.clicked = true;
+        if (live === 'cmd' && got?.ok && ['goto', 'choose'].includes(sent.cmd)) moved.went = true;
+        if (got?.refused) keep(question ? `Asked: "${question}"` : 'While answering a question', `The guide would not do it. ${got.why}`);
+      }
+      // a deck's own buttons drove the page: the bar goes there too, so a question can be asked on the page
+      if (!view && !walk && ['show', 'turn'].includes(live) && got?.ok) await draw({ head: 'Guide', caption: '', next: '' });
+      return json(got);
+    }
+    if (url.pathname === '/walk') {
+      const { go, deck } = JSON.parse(body || '{}');
+      if (go === 'start') return json(await startWalk(deck ?? walkName));
+      if (go === 'stop') return json(await stopWalk());
+      if (!walk) return json({ ok: false, why: 'no walk is running' });
+      await onPage({ kind: go });
+      return json({ ok: true, at: walk ? walk.at + 1 : null, of: walk?.steps.length, step: walk?.steps[walk.at]?.title, paused });
+    }
+    if (url.pathname === '/open') {
+      const { text, why } = JSON.parse(body || '{}');
+      return json(keep(text ? `Asked: ${text}` : question ? `Asked: "${question}"` : 'A question', `Open: ${why || 'the pages do not show the answer'}`));
+    }
     if (url.pathname === '/record') return json(JSON.parse(body || '{}').on ? startRecording() : await stopRecording().catch((error) => ({ ok: false, why: error.message.split('\n')[0] })));
     const { text, where } = JSON.parse(body || '{}');
     if (url.pathname === '/heard') return json({ ok: true, n: add({ who: 'you', text }).n });

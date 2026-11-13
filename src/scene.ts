@@ -226,10 +226,14 @@ export type LiveAction =
   | { point: Target; note?: string }
   | { click: Target }
   | { choose: string; from: Target }
+  /** put words in a text box. It only fills the box: if the page then tries to send anything but a read, that is stopped. */
+  | { fill: string; into: Target }
   | { download: Target; as: string }
   | { open: string }
   | { press: 'Escape' }
-  | { wait: Expect };
+  | { wait: Expect }
+  /** for a page that is not the same everywhere (a part that only a newer version has): `then` when the page is as `if` says, `else` when it is not */
+  | { if: Expect; then: LiveAction[]; else?: LiveAction[] };
 
 /**
  * Something to read for a check: from the live page (`pick` is a pattern whose first group is the
@@ -264,6 +268,8 @@ export interface LiveCheck {
   abs?: boolean;
   /** with two file readings: one comparison per sheet that `read` matches, named after the sheet */
   each?: boolean;
+  /** only compare when the page is like this; otherwise the check is left out, and the viewer is told so */
+  when?: Expect;
 }
 
 /** What a guided slide can do on the live page. Each part is one button in the player. */
@@ -523,12 +529,20 @@ export function slide(options: SlideOptions, drafts: Draft[]): Slide {
     if (!states[name]) throw new Error(`wag: step "${name}" is not one of the slide's states`);
   }
 
-  for (const action of options.live?.show ?? []) {
-    const pressed = 'click' in action ? action.click : 'download' in action ? action.download : undefined;
-    if (pressed !== undefined && COMMITS.test(labelOf(pressed).trim())) {
-      throw new Error(`wag: "Show me" may not press "${labelOf(pressed)}". Anything that saves, posts or sends is the viewer's own click: make it \`turn\``);
+  const mayShow = (actions: LiveAction[]) => {
+    for (const action of actions) {
+      if ('if' in action) {
+        mayShow(action.then);
+        mayShow(action.else ?? []);
+        continue;
+      }
+      const pressed = 'click' in action ? action.click : 'download' in action ? action.download : undefined;
+      if (pressed !== undefined && COMMITS.test(labelOf(pressed).trim())) {
+        throw new Error(`wag: "Show me" may not press "${labelOf(pressed)}". Anything that saves, posts or sends is the viewer's own click: make it \`turn\``);
+      }
     }
-  }
+  };
+  mayShow(options.live?.show ?? []);
   if (options.live?.turn && !options.live.turn.says.trim()) throw new Error('wag: `turn` needs `says`: what the viewer\'s click will do, in plain words');
 
   const narration = typeof options.narration === 'string' ? [options.narration] : (options.narration ?? []);

@@ -12,6 +12,8 @@
 //   guide check '<json list of checks>'
 //   guide record start   |   guide record stop      (a video, subtitles and a written walkthrough of the session)
 //   guide say "One or two sentences."      (shown as text and spoken)      guide heard "what the person asked"
+//   guide open "what was asked, in your words" --why "the pages do not show it"     (kept in the session's list for later)
+//   guide walk start <deck>   |   guide walk next   |   guide walk back   |   guide walk stop     (a deck's steps played on the page)
 // A target is the words on the page. Forms: "css=#id", "role=button:Name". --in dialog narrows it; --last takes the last match.
 // It talks to scripts/session.mjs, which passes commands on to the bridge. GUIDE_SESSION is its address
 // (default http://127.0.0.1:5191) and GUIDE_KEY_FILE where it wrote its key (default ~/.cache/wag/bridge.token).
@@ -61,6 +63,11 @@ if (cmd === 'record') {
   // record start | record stop: the page, the voice and the words, made into a video and a written walkthrough
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
   answer = await fetch(`${session}/record`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ on: words[0] !== 'stop' }) }).then((r) => r.json(), () => ({ ok: false, why: 'the session console is not running' }));
+} else if (cmd === 'open' || cmd === 'walk') {
+  // open: something for the person to follow up later. walk: step a deck's walk on the page.
+  const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
+  const body = cmd === 'open' ? { text: words.join(' '), why: flags.why } : { go: words[0] ?? 'next', deck: words[1] };
+  answer = await fetch(`${session}/${cmd}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify(body) }).then((r) => (r.ok ? r.json() : { ok: false, why: `session answered ${r.status}` }), () => ({ ok: false, why: 'the session console is not running' }));
 } else if (cmd === 'say' || cmd === 'heard') {
   // the talking half of the session: say shows the line and speaks it, heard notes what the person asked
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
@@ -74,7 +81,7 @@ if (cmd === 'record') {
   while (answer.ok && !answer.reached && Date.now() < end) answer = await post('turn', { live, again: true });
 } else if (bodies[cmd]) answer = await post('cmd', { cmd, ...bodies[cmd]() });
 else {
-  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn, say, heard, record`);
+  console.error(`Unknown command "${cmd ?? ''}". Commands: ${Object.keys(bodies).join(', ')}, turn, say, heard, open, walk, record`);
   process.exit(2);
 }
 console.log(JSON.stringify(answer, null, 1));

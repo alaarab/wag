@@ -17,7 +17,9 @@
 // Options: --port N, --serve DIR (a built deck; leave out when `npm run dev` serves the page),
 // --cdp URL, --app URL (send the deck's `go` addresses somewhere else, for a rehearsal),
 // --files DIR (where downloads are kept and checks look for workbooks), --no-open (never start
-// another program to open a file).
+// another program to open a file), --looks "words,words" (what else a dialog button of your app may
+// say for the guide to press it, because it only looks), --files-on "words,words" (what else a
+// button of your app says when it hands over a file: in a live session those are never pressed).
 // It needs only Node and Playwright, so it can be copied next to any Playwright install.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -69,6 +71,14 @@ const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|ap
 // What a button in a dialog may say for the guide to press it: it only shows, hides, reads again or downloads.
 const LOOKS = /^(close|x|×|cancel|back|next|previous|show|hide|expand|collapse|how to fix|how it is measured|refresh|open|view|details?|more|less|sort|filter|full detail|download|correcting entry|split by source)\b/i;
 
+// What a control says when pressing it hands over a file. In a live session those are the viewer's own click.
+// --files-on adds an app's own words for such a button, and --looks its words for a dialog button that only looks.
+const listed = (list) => (list || '').split(',').map((word) => word.trim().toLowerCase()).filter(Boolean);
+const filesOn = listed(option('files-on'));
+const looksToo = listed(option('looks'));
+const DOWNLOADS = /\b(download|export|excel|xlsx|csv|pdf)\b/i;
+const handsOver = (label) => DOWNLOADS.test(label) || filesOn.some((word) => label.toLowerCase().includes(word));
+
 class Refused extends Error {}
 
 // ---- the browser ------------------------------------------------------------------------------
@@ -80,6 +90,22 @@ let sent = [];
 
 /** closing the tab on the way out is only right for a tab the bridge opened for itself */
 let ownsTab = true;
+/**
+ * In a live session the browser is full of the viewer's own tabs. `mine` is a tab the guide opened;
+ * `adopted` is a tab it may act in: its own, or one the viewer already had on the page a step goes
+ * to. Any other tab is only read and pointed at, never clicked in and never sent somewhere else.
+ */
+let mine = false;
+let adopted = true;
+const samePage = (a, b) => {
+  try {
+    const [x, y] = [new URL(a), new URL(b)];
+    return x.origin === y.origin && x.pathname.replace(/\/$/, '') === y.pathname.replace(/\/$/, '');
+  } catch {
+    return false;
+  }
+};
+const blank = (address) => !address || /^(about:blank|edge:\/\/newtab|chrome:\/\/newtab|chrome:\/\/new-tab-page)/.test(address);
 
 /** The tab the viewer is looking at: the one that is showing, preferring one already on the app. */
 async function visibleTab() {
@@ -156,17 +182,61 @@ async function tab() {
   if (!page || page.isClosed()) {
     page = (liveSession && (await visibleTab())) || (await quietTab());
     ownsTab = !liveSession;
-    page.on('request', (request) => {
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
-    });
-    // what the viewer does with their own mouse, so a guide can carry on from where they went
-    await page.addInitScript(watchInPage);
-    await page.evaluate(watchInPage).catch(() => {});
-    page.on('download', (download) => void keepDownload(download));
+    // the tab in front in a live session is the viewer's: looked at, not driven, until a step goes to the page it is on
+    mine = !liveSession;
+    adopted = !liveSession || blank(page.url());
+    await wire(page);
   }
   // only a session the viewer started may put its tab in front of them
   if (liveSession) await page.bringToFront().catch(() => {});
   return page;
+}
+
+const wired = new WeakSet();
+/** What the bridge listens for in a tab it works in. */
+async function wire(target) {
+  if (wired.has(target)) return;
+  wired.add(target);
+  target.on('request', (request) => {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
+  // what the viewer does with their own mouse, so a guide can carry on from where they went
+  await target.addInitScript(watchInPage);
+  await target.evaluate(watchInPage).catch(() => {});
+  target.on('download', (download) => void keepDownload(download));
+  // the bar on the page tells the bridge what was pressed or asked, and is put back when the page loads again
+  await target.exposeBinding('__wagTell', (_source, said) => heard(said)).catch(() => {});
+  const again = () => void (target === page && drawBar());
+  target.on('load', again);
+  target.on('framenavigated', (frame) => frame === target.mainFrame() && again());
+}
+
+/**
+ * Before a step goes to an address in a live session: the tab to do it in. The guide's own tab, or
+ * the tab in front when it is already on that page, or else a new tab. A page the viewer had open
+ * on something else is never sent anywhere: it may hold work they have not saved.
+ */
+async function tabToGo(to) {
+  if (!liveSession) return '';
+  if (mine || blank(page.url()) || samePage(page.url(), to)) {
+    adopted = true;
+    return '';
+  }
+  await clear();
+  await page.evaluate(barInPage, null).catch(() => {});
+  page = await browser.contexts()[0].newPage();
+  mine = true;
+  adopted = true;
+  await wire(page);
+  await page.bringToFront().catch(() => {});
+  return ', in a tab of its own: the page you had open is left as it was';
+}
+
+/** Clicking, choosing and typing are only for a tab the guide may act in. */
+function mayActHere(what) {
+  if (liveSession && !adopted) {
+    throw new Refused(`This tab was open on something of yours, so the guide only reads it and will not ${what} here. When a step goes to a page, the guide opens a tab of its own.`);
+  }
 }
 
 /** Runs in the page: remembers the viewer's last few real clicks. */
@@ -267,8 +337,11 @@ async function guard(found) {
   if (control.submits || COMMITS.test(control.label)) {
     throw new Refused(`"${control.label}" changes something, so the guide will not press it. That click is yours.`);
   }
+  if (liveSession && control.button && handsOver(control.label)) {
+    throw new Refused(`"${control.label}" hands over a file, and in a live session a download is your own click. The guide can ring it and wait for you.`);
+  }
   // inside a dialog, a button has to be one the guide knows only looks. Anything else is not pressed, and the reason is given.
-  if (control.inDialog && control.button && !control.opens && !LOOKS.test(control.label)) {
+  if (control.inDialog && control.button && !control.opens && !LOOKS.test(control.label) && !looksToo.some((word) => control.label.toLowerCase().startsWith(word))) {
     throw new Refused(`The guide cannot tell what "${control.label || 'that button'}" does, so it will not press it. That click is yours.`);
   }
 }
@@ -294,7 +367,9 @@ function ringInPage(el, [note, tone]) {
     if (!el.isConnected) return window.__wagClear();
     const r = el.getBoundingClientRect();
     Object.assign(ring.style, { left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
-    const below = r.bottom + 14 + words.offsetHeight < innerHeight;
+    // the bar along the bottom, when it is there, is not written over
+    const floor = innerHeight - (document.getElementById('wag-bar')?.offsetHeight ?? 0) - 20;
+    const below = r.bottom + 14 + words.offsetHeight < floor;
     words.style.left = `${Math.max(8, Math.min(r.left, innerWidth - words.offsetWidth - 8))}px`;
     words.style.top = below ? `${r.bottom + 14}px` : `${Math.max(8, r.top - 14 - words.offsetHeight)}px`;
     requestAnimationFrame(place);
@@ -356,16 +431,19 @@ const kept = new Map();
 async function act(action, base) {
   if ('go' in action) {
     const to = /^https?:/.test(action.go) ? action.go : `${appOverride ?? base ?? ''}${action.go}`;
+    const where = await tabToGo(to);
     await clear();
     if (page.url() !== to) await page.goto(to, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    return `Opened ${new URL(to).pathname}${new URL(to).search}`;
+    await drawBar();
+    return `Opened ${new URL(to).pathname}${new URL(to).search}${where}`;
   }
   if ('point' in action) {
     await ring(action.point, action.note);
     return `Pointed at ${words(action.point)}`;
   }
   if ('click' in action) {
+    mayActHere('click');
     const found = await ring(action.click);
     await guard(found);
     await page.waitForTimeout(700);
@@ -374,6 +452,7 @@ async function act(action, base) {
     return `Clicked ${words(action.click)}`;
   }
   if ('choose' in action) {
+    mayActHere('choose');
     const found = await ring(action.from);
     await guard(found);
     await page.waitForTimeout(500);
@@ -385,6 +464,26 @@ async function act(action, base) {
       await pick.click({ timeout: 15000 });
     }
     return `Chose ${action.choose}`;
+  }
+  if ('fill' in action) {
+    mayActHere('type');
+    const found = await ring(action.into);
+    const box = await found.evaluate((el) => ({ tag: el.tagName, type: (el.getAttribute('type') ?? 'text').toLowerCase(), editable: el.isContentEditable, shut: Boolean(el.disabled || el.readOnly) }));
+    const text = box.tag === 'TEXTAREA' || box.editable || (box.tag === 'INPUT' && ['text', 'search', 'number', 'tel'].includes(box.type));
+    if (!text || box.shut) throw new Refused(`${words(action.into)} is not a text box the guide may type in. That one is yours.`);
+    await page.waitForTimeout(500);
+    await clear();
+    // typing only fills the box; a page that saves as you type is stopped like any other send
+    await lookOnly(() => found.fill(action.fill));
+    const lines = action.fill.split('\n').length;
+    return `Filled ${words(action.into)}${lines > 1 ? ` (${lines} lines)` : ` with ${action.fill}`}`;
+  }
+  if ('if' in action) {
+    // a short wait, so a part that is still arriving counts as there
+    const there = await until(action.if, 2500);
+    const done = [];
+    for (const next of there ? action.then : (action.else ?? [])) done.push(...[].concat(await act(next, base)));
+    return done;
   }
   if ('download' in action) {
     if (liveSession) throw new Refused('In a live session a download is your own click, so the file lands in your Downloads. The guide rings the button and waits.');
@@ -410,6 +509,7 @@ async function act(action, base) {
     return `Opened ${action.open}`;
   }
   if ('press' in action) {
+    mayActHere('press Escape');
     await page.keyboard.press('Escape');
     return 'Closed it';
   }
@@ -418,6 +518,239 @@ async function act(action, base) {
     return 'The page is ready';
   }
   throw new Error(`Unknown action ${JSON.stringify(action)}`);
+}
+
+// ---- the bar on the page ------------------------------------------------------------------------
+// In the tab the guide drives: the line being said, as text, and a box to ask in. It only shows and
+// listens. What its buttons and keys mean is decided by the session that started the bridge: the bar
+// tells it "next", "back", "ask" and so on, and draws whatever state it is handed.
+
+/** what the bar shows now, kept so it can be put back when the page loads again */
+let barState = null;
+/** what the page said, waiting for a bridge that listens on a port (over stdio it is written out at once) */
+const pageEvents = [];
+const KINDS = ['ask', 'askopen', 'askclose', 'next', 'back', 'auto', 'sound'];
+
+function heard(said) {
+  let event;
+  try {
+    event = JSON.parse(said);
+  } catch {
+    return;
+  }
+  if (!KINDS.includes(event?.kind)) return;
+  event = { kind: event.kind, ...(event.kind === 'ask' ? { text: String(event.text ?? '').slice(0, 2000) } : {}) };
+  // the log says that something was asked, not what
+  record({ fromPage: event.kind });
+  if (overStdio) console.log(JSON.stringify({ event }));
+  else pageEvents.push(event);
+}
+
+/**
+ * Runs in the page: draws the bar, or takes it away when handed nothing. Its styles and its insides
+ * are kept apart from the page's, and nothing typed or pressed in it reaches the page: an app that
+ * holds the keyboard inside an open dialog, or shuts a dialog on a click outside it, is not disturbed.
+ */
+function barInPage(state) {
+  if (!state) {
+    window.__wagBar?.off();
+    window.__wagBar = undefined;
+    return false;
+  }
+  let bar = window.__wagBar;
+  if (!bar?.host.isConnected) {
+    bar?.off();
+    const el = (tag, name, text) => {
+      const node = document.createElement(tag);
+      if (name) node.className = name;
+      if (text) node.textContent = text;
+      return node;
+    };
+    const host = el('div');
+    host.id = 'wag-bar';
+    host.style.cssText = 'all:initial;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);width:min(940px,calc(100vw - 32px));z-index:2147483647;pointer-events:auto';
+    const root = host.attachShadow({ mode: 'open' });
+    // a sheet made in script, so a page that allows no inline styles still shows the bar
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(`
+      .wrap{box-sizing:border-box;background:#0f172a;color:#f8fafc;border-radius:12px;border-left:5px solid #38bdf8;padding:12px 16px;font:500 16px/1.45 "Segoe UI",system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.45)}
+      .wrap.asking{border-left-color:#fbbf24}
+      .head{display:flex;gap:10px;font-size:13px;color:#94a3b8;margin-bottom:2px}
+      .head .mark{margin-left:auto;color:#fbbf24;font-weight:700}
+      .asked{font-size:14px;color:#cbd5e1;margin:2px 0}
+      .words{white-space:pre-wrap;max-height:9.5em;overflow:auto}
+      form{display:flex;gap:8px;margin-top:10px}
+      input{flex:1;min-width:0;font:inherit;color:#f8fafc;background:#020617;border:1px solid #475569;border-radius:8px;padding:7px 11px}
+      input:focus{outline:2px solid #38bdf8;outline-offset:1px}
+      .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+      button{font:600 14px/1 "Segoe UI",system-ui,sans-serif;color:#f8fafc;background:#1e293b;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
+      button:hover{background:#334155}
+      button.main,button[aria-pressed="true"]{background:#38bdf8;color:#0f172a}
+      button:disabled{opacity:.45;cursor:default}
+      [hidden]{display:none!important}
+    `);
+    root.adoptedStyleSheets = [sheet];
+    const wrap = el('div', 'wrap');
+    const head = el('div', 'head');
+    const step = el('span');
+    const mark = el('span', 'mark');
+    head.append(step, mark);
+    const asked = el('div', 'asked');
+    const words = el('div', 'words');
+    words.setAttribute('role', 'status');
+    const form = el('form');
+    const box = el('input');
+    box.type = 'text';
+    box.autocomplete = 'off';
+    box.placeholder = 'Ask about this page, then press Enter';
+    box.setAttribute('aria-label', 'Ask the guide');
+    const sendIt = el('button', 'main', 'Ask');
+    form.append(box, sendIt);
+    form.hidden = true;
+    const row = el('div', 'row');
+    const button = (does, label) => {
+      const b = el('button', '', label);
+      b.type = 'button';
+      b.dataset.does = does;
+      row.append(b);
+      return b;
+    };
+    const back = button('back', 'Back');
+    const next = button('next', 'Next (F8)');
+    const ask = button('ask', 'Ask (F2)');
+    const auto = button('auto', 'Auto');
+    const sound = button('sound', 'Sound');
+    wrap.append(head, asked, words, form, row);
+    root.append(wrap);
+
+    const tell = (kind, more) => window.__wagTell?.(JSON.stringify({ kind, ...more }));
+    let busy = false;
+    const asking = (on) => {
+      if (on === !form.hidden || (on && busy)) return;
+      form.hidden = !on;
+      if (on) box.focus();
+      else {
+        box.value = '';
+        box.blur();
+      }
+      tell(on ? 'askopen' : 'askclose');
+    };
+    const inBar = (event) => event.composedPath().includes(host);
+    const onKey = (event) => {
+      if (!host.isConnected) return;
+      if (event.key === 'F2' || event.key === 'F8') {
+        // these two keys are the guide's wherever the cursor is
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        return event.key === 'F2' ? asking(form.hidden) : tell('next');
+      }
+      if (!inBar(event)) return;
+      event.stopPropagation();
+      if (event.key === 'Escape' && !form.hidden) {
+        event.preventDefault();
+        asking(false);
+      }
+    };
+    const onClick = (event) => {
+      if (!inBar(event)) return;
+      event.stopPropagation();
+      const pressed = event.composedPath().find((node) => node instanceof HTMLElement && node.dataset.does);
+      if (!pressed || pressed.disabled) return;
+      if (pressed.dataset.does === 'ask') asking(form.hidden);
+      else tell(pressed.dataset.does);
+    };
+    // a submit does not leave the bar's own tree, so the page never sees it
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const text = box.value.trim();
+      if (!text || busy) return;
+      box.value = '';
+      form.hidden = true;
+      tell('ask', { text });
+    });
+    // everything else that happens in the bar stops here, before the page's own listeners
+    const quiet = (event) => {
+      if (inBar(event) || event.relatedTarget === host) event.stopPropagation();
+    };
+    const QUIET = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'touchstart', 'touchend', 'keyup', 'keypress', 'focusin', 'focusout', 'input', 'beforeinput', 'paste', 'copy', 'cut', 'contextmenu'];
+    addEventListener('keydown', onKey, true);
+    addEventListener('click', onClick, true);
+    for (const type of QUIET) addEventListener(type, quiet, true);
+    // a dialog the browser itself holds open is drawn over the rest of the page, so the bar moves into it
+    let placing = 0;
+    const place = () => {
+      const home = [...document.querySelectorAll('dialog:modal')].at(-1) ?? document.documentElement;
+      if (host.parentNode !== home) home.append(host);
+    };
+    place();
+    placing = setInterval(place, 500);
+    bar = window.__wagBar = {
+      host,
+      off() {
+        clearInterval(placing);
+        removeEventListener('keydown', onKey, true);
+        removeEventListener('click', onClick, true);
+        for (const type of QUIET) removeEventListener(type, quiet, true);
+        host.remove();
+      },
+      draw(s) {
+        busy = Boolean(s.busy);
+        wrap.className = `wrap${s.asked || !form.hidden ? ' asking' : ''}`;
+        step.textContent = s.head ?? '';
+        mark.textContent = s.mark ?? '';
+        asked.textContent = s.asked ? `You asked: ${s.asked}` : '';
+        asked.hidden = !s.asked;
+        words.textContent = s.caption ?? '';
+        next.textContent = s.next ?? 'Next (F8)';
+        next.hidden = s.next === '';
+        next.className = 'main';
+        next.disabled = busy;
+        back.hidden = !s.back;
+        back.disabled = busy;
+        auto.hidden = s.auto === undefined;
+        auto.setAttribute('aria-pressed', String(Boolean(s.auto)));
+        sound.setAttribute('aria-pressed', String(s.sound !== false));
+        ask.disabled = busy;
+        if (busy && !form.hidden) form.hidden = true;
+      },
+    };
+  }
+  bar.draw(state);
+  return true;
+}
+
+/** Runs in the page: plays a spoken line where the viewer is looking. Says whether it could. */
+async function playInPage([data, wanted]) {
+  window.__wagHush?.();
+  if (!wanted) return { played: false };
+  const Sound = window.AudioContext ?? window.webkitAudioContext;
+  if (!Sound) return { played: false };
+  const context = (window.__wagSound ??= new Sound());
+  // a browser lets a page make sound once the person has pressed or clicked something in it
+  if (context.state !== 'running') await Promise.race([context.resume(), new Promise((done) => setTimeout(done, 400))]).catch(() => {});
+  if (context.state !== 'running') return { played: false };
+  const raw = atob(data);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const buffer = await context.decodeAudioData(bytes.buffer);
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  source.start();
+  window.__wagHush = () => {
+    try {
+      source.stop();
+    } catch {}
+    window.__wagHush = undefined;
+  };
+  return { played: true, seconds: Math.round(buffer.duration * 10) / 10 };
+}
+
+/** The bar is only for a tab the guide may act in: it is not drawn over a page the viewer had open on something else. */
+async function drawBar() {
+  if (!page || page.isClosed() || (liveSession && !adopted)) return false;
+  return page.evaluate(barInPage, barState).catch(() => false);
 }
 
 // ---- workbooks --------------------------------------------------------------------------------
@@ -537,6 +870,7 @@ function sheetsOf(reading) {
 }
 
 async function check(item) {
+  if (item.when && !(await holds(item.when))) return [{ label: item.label, ok: true, skipped: true, got: '', want: '' }];
   if (item.each && 'file' in item.read) {
     let names;
     try {
@@ -585,7 +919,8 @@ async function whereNow() {
     const dialog = [...document.querySelectorAll('[role="dialog"], dialog[open]')].filter((d) => d.getClientRects().length).at(-1);
     const out = {
       title: document.title,
-      dialog: dialog ? (dialog.getAttribute('aria-label') || dialog.querySelector('h1,h2,h3,b')?.textContent || 'a dialog').trim().slice(0, 120) : null,
+      // by its label or heading, or else by its first line, so two dialogs can be told apart
+      dialog: dialog ? (dialog.getAttribute('aria-label') || dialog.querySelector('h1,h2,h3,b')?.textContent || dialog.innerText.trim().split('\n')[0] || 'a dialog').trim().slice(0, 120) : null,
       scrolled: Math.round(scrollY),
       viewerClicks: (window.__wagSeen ?? []).map((c) => `${c.what} (${Math.round((Date.now() - c.at) / 1000)} s ago)`),
       pointing: Boolean(window.__wagClear),
@@ -593,11 +928,26 @@ async function whereNow() {
     window.__wagSeen = [];
     return out;
   });
-  return { address: page.url(), ...seen, lastDownload: lastDownload ? { name: lastDownload.name, secondsAgo: Math.round((Date.now() - lastDownload.at) / 1000) } : null };
+  const whose = !liveSession ? undefined : mine ? 'the guide opened this tab' : adopted ? 'the viewer had this tab on the same page, so the guide works in it' : 'this tab is the viewer\'s own: the guide only reads it, and opens a tab of its own when it goes to a page';
+  return { address: page.url(), tab: whose, ...seen, lastDownload: lastDownload ? { name: lastDownload.name, secondsAgo: Math.round((Date.now() - lastDownload.at) / 1000) } : null };
 }
 
 const commands = {
   where: () => whereNow(),
+  /** Draw the bar on the page with this state, or take it away. `shown` is false on a tab the guide may not act in. */
+  async bar({ state }) {
+    barState = state ?? null;
+    return { shown: Boolean(await drawBar()) };
+  },
+  /** Play a spoken line in the page. `played` is false when the page may not make sound yet: then the console plays it. */
+  async speak({ audio }) {
+    if (!barState || (liveSession && !adopted)) return { played: false };
+    return page.evaluate(playInPage, [audio, true]).catch(() => ({ played: false }));
+  },
+  async hush() {
+    await page.evaluate(() => window.__wagHush?.()).catch(() => {});
+    return { did: 'Quiet' };
+  },
   async goto({ to, app }) {
     return { did: await act({ go: to }, app), ...(await whereNow()) };
   },
@@ -752,7 +1102,7 @@ const routes = {
       sent = [];
       const done = [];
       try {
-        for (const action of live.show ?? []) done.push(await act(action, app));
+        for (const action of live.show ?? []) done.push(...[].concat(await act(action, app)));
         return { ok: true, done, sent };
       } catch (error) {
         return { ok: false, done, refused: error instanceof Refused, why: error.message.split('\n')[0], sent };
@@ -764,6 +1114,8 @@ const routes = {
       try {
         // the ring goes up once; asking again only keeps waiting
         if (!again) {
+          // already there, because the guide did it or the viewer was ahead: nothing to ring or wait for
+          if (!live.turn.until.file && (await holds(live.turn.until))) return { ok: true, reached: true, already: true };
           await ring(live.turn.point, `Your turn. ${live.turn.says}`, '#fbbf24');
           turnBegan = Date.now();
         }
@@ -790,7 +1142,7 @@ const routes = {
             await (await ring(action.click)).click({ timeout: 15000 });
             await clear();
             done.push(`Clicked ${words(action.click)}`);
-          } else done.push(await act(action, app));
+          } else done.push(...[].concat(await act(action, app)));
         }
         return { ok: true, done };
       } catch (error) {
@@ -805,6 +1157,8 @@ const routes = {
       return { ok: true, results };
     }),
   clear: () => inTurn(async () => ({ ok: true, cleared: Boolean(await clear()) })),
+  /** what the bar on the page was told since the last call (a bridge on its own input and output writes these out as they happen) */
+  events: async () => ({ ok: true, events: pageEvents.splice(0) }),
   /** One small command from a live session: { cmd: 'highlight', target: ..., note: ... }. Answers in about a second. */
   cmd: ({ cmd, ...rest }) =>
     inTurn(async () => {
@@ -860,7 +1214,9 @@ const server = http.createServer(async (req, res) => {
 /** One request, answered and written to the log, however it arrived. */
 async function answerTo(route, asked) {
   const answer = await routes[route](asked).catch((error) => ({ ok: false, why: error.message.split('\n')[0] }));
-  if (route !== 'status' && asked.cmd !== 'frame') record({ route, asked: route === 'cmd' ? asked : { steps: (asked.live?.show ?? []).length || undefined, turn: asked.live?.turn?.says, checks: (asked.live?.check ?? []).length || undefined }, ok: answer.ok, refused: answer.refused || undefined, why: answer.why, done: answer.done ?? answer.did, sent: answer.sent?.length ? answer.sent : undefined, ms: answer.ms });
+  // a picture, a spoken line and the words on the bar are not written to the log; neither is a poll for events
+  const kept = ['speak', 'bar'].includes(asked.cmd) ? { cmd: asked.cmd } : asked;
+  if (!['status', 'events'].includes(route) && asked.cmd !== 'frame') record({ route, asked: route === 'cmd' ? kept : { steps: (asked.live?.show ?? []).length || undefined, turn: asked.live?.turn?.says, checks: (asked.live?.check ?? []).length || undefined }, ok: answer.ok, refused: answer.refused || undefined, why: answer.why, done: answer.done ?? answer.did, sent: answer.sent?.length ? answer.sent : undefined, ms: answer.ms });
   return answer;
 }
 
@@ -891,6 +1247,8 @@ if (overStdio) {
 
 async function stop() {
   await clear();
+  await page?.evaluate(barInPage, null).catch(() => {});
+  await page?.evaluate(() => window.__wagHush?.()).catch(() => {});
   if (ownsTab) await page?.close().catch(() => {});
   await browser?.close().catch(() => {});
   process.exit(0);

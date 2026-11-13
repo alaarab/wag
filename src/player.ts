@@ -400,10 +400,16 @@ export function mount(deck: Deck, root: HTMLElement): Player {
         } else if (!answer.ok) tell({ title: 'My turn: stopped', lines: [{ kind: 'no', text: answer.why }] });
       } else {
         const answer = await ask('check', { live });
-        const results = answer.results as { label: string; ok: boolean; got: string; want: string }[];
+        const all = answer.results as { label: string; ok: boolean; got: string; want: string; skipped?: boolean }[];
+        // a check for a part this page does not have is left out, and said
+        const results = all.filter((r) => !r.skipped);
         const good = results.filter((r) => r.ok).length;
-        const lines: ReportLine[] = results.map((r) => ({ kind: r.ok ? 'ok' : 'no', text: `${r.label}: ${r.got}${r.want === '' ? '' : r.ok ? ` matches ${r.want}` : ` does not match ${r.want}`}` }));
-        const summary = good === results.length ? `Check: all ${results.length} match` : `Check: ${results.length - good} of ${results.length} do not match`;
+        const lines: ReportLine[] = all.map((r) =>
+          r.skipped
+            ? { kind: 'note', text: `${r.label}: left out, that part is not on this page` }
+            : { kind: r.ok ? 'ok' : 'no', text: `${r.label}: ${r.got}${r.want === '' ? '' : r.ok ? ` matches ${r.want}` : ` does not match ${r.want}`}` }
+        );
+        const summary = !results.length ? 'Check: nothing to compare on this page' : good === results.length ? `Check: all ${results.length} match` : `Check: ${results.length - good} of ${results.length} do not match`;
         tell({ title: summary, lines });
         announce(`${summary}.`);
       }

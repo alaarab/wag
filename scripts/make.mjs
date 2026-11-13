@@ -4,6 +4,7 @@
 //   handouts/<slide>.docx  a Word document for each slide that asks for one
 //   handouts/<deck>.docx   every slide in one Word document
 //   wag.json            what was made, which is how the player finds it
+//   walk.json           a guided deck's steps, for a live session to play on the page itself
 // Nothing here is needed to play a deck: without audio the browser's own voice reads the lines.
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -147,6 +148,22 @@ if (told.length) {
   await write(join(out, whole), told.flatMap(section));
 }
 console.log(`Handouts: ${handouts.length} slides${whole ? ', and the whole deck as one document' : ''}`);
+
+// ---- the walk --------------------------------------------------------------------------------
+// The same steps in a form a live session can play on the page itself (scripts/session.mjs --walk):
+// each slide's lines with their audio, and what it does on the page.
+const steps = deck.slides
+  .filter((s) => !s.hidden)
+  .map((s) => ({
+    name: s.name,
+    title: s.title ?? '',
+    lines: s.narration.map((line) => ({ text: line, audio: audio[wag.lineKey(wag.spoken(deck, line))]?.file, seconds: audio[wag.lineKey(wag.spoken(deck, line))]?.seconds })),
+    live: s.live,
+  }));
+if (steps.some((s) => s.live)) {
+  writeFileSync(join(out, 'walk.json'), JSON.stringify({ deck: name, title: deck.title ?? name, app: deck.app, steps }, null, 1));
+  console.log(`Walk: ${steps.length} steps, for a session started with --walk ${name}`);
+}
 
 writeFileSync(join(out, 'wag.json'), JSON.stringify({ voice: Object.keys(audio).length ? model : undefined, audio, handouts, whole }, null, 2));
 console.log(`Wrote ${out}`);

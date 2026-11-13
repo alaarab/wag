@@ -197,6 +197,7 @@ footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; ju
   <a href="#bridge">Running the bridge</a>
   <a href="#safety">What it will not do</a>
   <a href="#live">Live guide</a>
+  <a href="#walk">A walk on the page</a>
   <a href="#ask">Ask, inside the deck</a>
   <b>More</b>
   <a href="#outside">Private decks</a>
@@ -379,6 +380,7 @@ shot('/guide/page.png', {
     }],
   },
 }, [...])</code></pre>
+  <p>Besides <code>go</code>, <code>click</code>, <code>choose</code>, <code>point</code> and <code>wait</code>, Show me can put words in a text box with <code>{ fill: 'words', into: target }</code>: it only fills the box, and a page that tries to send anything as it is typed in is stopped. For a page that differs between versions, <code>{ if: { see: 'New part' }, then: [...], else: [...] }</code> takes one branch or the other, and a check with <code>when: { see: 'New part' }</code> is left out, and said to be, when that part is not there.</p>
   <div class="pair">
     <figure>
       <img src="img/showme-page.png" alt="A made-up page with a dialog; the amount 412.50 has a blue ring and a note saying The amount this entry has to move" loading="lazy" />
@@ -503,6 +505,27 @@ guide say "This is the amount the entry has to move."</code></pre>
     <tr><td><code>screenshot</code>, <code>record</code></td><td>A picture of the tab; start or stop a recording (video, subtitles and a written walkthrough)</td></tr>
   </table>
   <p>Any assistant that can run a shell command can be the guide. Allow it to run <code>guide</code> and nothing else, and give it a short map of the page.</p>
+  <p>In a live session the guide never takes over a tab you had open on something else. It works in the tab in front only when that tab is already on the page a step goes to; otherwise it opens a tab of its own. It never presses a button that hands over a file, whoever asks.</p>
+</section>
+
+<section id="walk">
+  <h3>A walk on the page itself</h3>
+  <p><code>npm run make &lt;deck&gt;</code> also writes a guided deck's steps as <code>walk.json</code>. Start the session with <code>--walk &lt;deck&gt;</code> and it plays them in the tab it drives, with no slides in between. A bar along the bottom shows each line as text and speaks it, the step's Show me is done, a My turn is waited for, and its Check is read out.</p>
+  <figure>
+    <img src="img/bar.png" alt="A made-up page with the bar along the bottom: the step, a question that was asked, the answer, and Back, Continue, Ask, Auto and Sound" loading="lazy" />
+    <figcaption>Paused on step 4 of the made-up deck for a question. Continue puts the page back on the step.</figcaption>
+  </figure>
+  <table>
+    <tr><th>Key or button</th><th>Does</th></tr>
+    <tr><td><kbd>F8</kbd>, <strong>Next</strong></td><td>The next step. After a question it is <strong>Continue</strong>: the page goes back to the step, and the walk carries on from there</td></tr>
+    <tr><td><kbd>F2</kbd>, <strong>Ask</strong></td><td>Opens a box to type a question in. The walk pauses. <kbd>Esc</kbd> shuts the box</td></tr>
+    <tr><td><strong>Back</strong>, <strong>Auto</strong>, <strong>Sound</strong></td><td>The step before; steps that go on by themselves; the voice on or off</td></tr>
+  </table>
+  <p>The answer shows in the bar and is spoken, and the guide rings the cell or row it means. To look something up it may open things on the page, under the same rules as Show me. What it could not answer from the page, and anything it would not do, is kept in <code>open-questions.md</code> in the session folder. Nothing typed or pressed in the bar reaches the page: a dialog that holds the keyboard stays as it is.</p>
+  <pre><code class="sh">npm run make my-deck &amp;&amp; npm run build
+node scripts/session.mjs --deck dist --walk my-deck --ask scripts/ask.sh \
+  --bridge "node scripts/live.mjs --stdio"
+guide walk next   # the same as F8, from a terminal; also back, stop, start &lt;deck&gt;</code></pre>
 </section>
 
 <section id="ask">

@@ -102,6 +102,8 @@ slide({
 }, [...])
 ```
 
+Show me can also put words in a text box, `{ fill: 'words', into: target }`, and take a branch on a page that differs between versions, `{ if: { see: 'New part' }, then: [...], else: [...] }`. A check with `when` is left out, and said to be, when that part is not on the page.
+
 The driving is done by a small bridge, `scripts/live.mjs`, which uses Playwright to connect to a browser that is already running, over its debugging port. Use a browser with no window for building (the bridge works in a tab of its own and keeps downloads in its own folder):
 
 ```sh
@@ -113,9 +115,15 @@ node scripts/live.mjs --serve dist
 
 To watch it on your own screen, start the browser with a window and add `--live`: the bridge then works in the tab you are looking at, and downloads become your own click.
 
-**What it will not do.** Before every click the bridge reads the real control's label and refuses anything that saves, posts, approves, submits, deletes, sends or otherwise commits (`COMMITS` in `src/scene.ts`), and any dialog button it cannot classify. On a page that is not on this machine, a click may only read: anything else the page tries to send is stopped. Every start makes a new key, and every command and refusal goes to `bridge.log`. Those steps are My turn only, and My turn has to say what the click will do.
+**What it will not do.** Before every click the bridge reads the real control's label and refuses anything that saves, posts, approves, submits, deletes, sends or otherwise commits (`COMMITS` in `src/scene.ts`), and any dialog button it cannot classify. On a page that is not on this machine, a click may only read: anything else the page tries to send is stopped. Every start makes a new key, and every command and refusal goes to `bridge.log`. Your app's own words for a dialog button that only looks go in `--looks "words,words"`, and its words for a button that hands over a file in `--files-on "words,words"`. Those steps are My turn only, and My turn has to say what the click will do.
 
 **Live guide.** `scripts/session.mjs` and the `guide` command let an assistant and a person share one tab: the assistant rings things, reads the page and talks (`guide highlight`, `guide read`, `guide say`), through the same bridge and the same rules. See the [docs page](docs/index.html#live).
+
+**A walk on the page itself.** `npm run make <deck>` also writes a guided deck's steps as `walk.json`. Start the session with `--walk <deck>` and it plays them in the tab it drives, with no slides in between: a bar along the bottom shows each line as text and speaks it, the step's Show me is done, a My turn is waited for, and its Check is read out. `F8` or **Next** goes on. `F2` opens a box to ask a question right there: the walk pauses, the answer shows in the bar, and **Continue** (`F8` again) puts the page back on the step. What the guide could not answer from the page, and anything it would not do, is kept in `open-questions.md` in the session folder.
+
+<img src="docs/img/bar.png" alt="A made-up page with the bar along the bottom: the step, a question that was asked, the answer, and Back, Continue, Ask, Auto and Sound" width="820">
+
+In a live session the guide never takes over a tab you had open on something else. It works in the tab in front only when that tab is already on the step's page; otherwise it opens a tab of its own. It never presses a button that hands over a file, whoever asks.
 
 **Ask, inside the deck.** Start the session with `--ask scripts/ask.sh` and the bar gets an Ask button (or press `/`). A question typed there goes to the guide with the step you are on and what the page shows, and the answer comes back as text and voice, one conversation from the first question to the last.
 
