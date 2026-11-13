@@ -247,9 +247,14 @@ function watchInPage() {
     'click',
     (event) => {
       if (!event.isTrusted || window.__wagActing) return;
+      // a press on the guide's own bar is not something they did on the page
+      if (event.composedPath().some((node) => node.id === 'wag-bar')) return;
       const el = event.target instanceof Element ? (event.target.closest('button, a, [role], tr, label') ?? event.target) : null;
       if (!el) return;
-      window.__wagSeen.push({ what: (el.getAttribute('aria-label') || el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 90), at: Date.now() });
+      const what = (el.getAttribute('aria-label') || el.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 90);
+      // a click on nothing says nothing
+      if (!what) return;
+      window.__wagSeen.push({ what, at: Date.now() });
       window.__wagSeen = window.__wagSeen.slice(-5);
     },
     true

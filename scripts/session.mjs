@@ -696,27 +696,58 @@ function keep(what, why) {
 // at the page with the other guide commands, if it likes), or simply by printing the answer. One
 // question at a time. WAG_ASK_ID is the same for the whole session and WAG_ASK_N counts the
 // questions, so the command can keep one conversation going from the first question to the last.
+// WAG_ASK_CONTEXT is the question and where the person is as JSON (see contextFor), for an
+// answerer that is a program and not a reader: one that passes the question on to another service, say.
 
 const talkId = randomUUID();
 let questions = 0;
 let answering = false;
 
-const promptFor = (text, where = {}, page, shown) =>
+/**
+ * What an answerer is told with a question: one shape, whoever answers and wherever it was asked.
+ * It goes to the answerer twice: as plain sentences on its input, and whole, as JSON, in
+ * WAG_ASK_CONTEXT. It is never written to the session folder, because `shows` is the page's own text.
+ *   question   what was asked
+ *   from       'bar' (the bar on the page) or 'deck' (the Ask box of a deck or of the console)
+ *   page       { address, title, dialog, clicks, shows } or null with no bridge: where the driven tab is, the
+ *              dialog open on it, the viewer's own last clicks, and the text of that dialog or page (cut at 4,000 characters)
+ *   step       { deck, title, at, line, words, buttons, report } or null: the step of the walkthrough they are on
+ *   playing    whether a walk is playing on the page; `steps` are its step titles, in order
+ *   comesBack  whether the page is put back where it was once they continue (it stays put when nothing is playing)
+ *   walks      [{ name, title, steps }]: the walks that could be started
+ * What an answerer may do with it: say (guide say), and show (guide goto, click, choose, highlight:
+ * look-only). Anything that changes something stays the viewer's own click, and is only put in words.
+ */
+function contextFor(text, where = {}, page, shown) {
+  return {
+    question: text,
+    from: where.bar ? 'bar' : 'deck',
+    page: page?.ok ? { address: page.address, title: page.title ?? '', dialog: page.dialog ?? null, clicks: page.viewerClicks ?? [], shows: shown?.ok ? (shown.text ?? '') : '' } : null,
+    step: where.deck ? { deck: where.deck, title: where.slide, at: where.at, line: where.line, words: where.words, buttons: where.buttons, report: where.report } : null,
+    playing: Boolean(walk),
+    steps: walk ? walk.steps.map((step) => step.title) : [],
+    comesBack: Boolean(where.bar) && !where.free,
+    walks: walks(),
+  };
+}
+
+/** The same context as plain sentences, for an answerer that reads its input. */
+const promptFor = (c) =>
   [
-    where.deck && `The person is in the guided deck "${where.deck}", on "${where.slide}" (${where.at}).`,
-    where.line && `The line said there: "${where.line}"`,
-    where.words && `On the slide: ${where.words}`,
-    where.buttons && `This step's buttons. ${where.buttons}`,
-    where.report && `The last result shown to them: ${where.report}`,
-    where.bar && !where.free && 'They asked from the bar on the page itself, with the walkthrough paused. Your guide say shows there. When they continue, the page is put back on the step, so you need not put it back.',
-    where.free && 'No walkthrough is playing. They asked from the bar on the page itself, and your guide say shows there. The page stays where you leave it: go to the page that answers them and point at what you mean.',
-    walk && `Only if they ask to go to another part of this walkthrough: guide walk goto <number>. Its steps: ${walk.steps.map((step, n) => `${n + 1}. ${step.title}`).join('; ')}.`,
-    !walk && walks().length && `Only if they ask for a walkthrough: guide walk start <name>. There are: ${walks().map((made) => `${made.name} (${made.title})`).join('; ')}.`,
-    (walk || walks().length) && 'A start or a jump plays once your guide say has been heard, so say in one sentence what is about to play.',
-    page?.ok && `The page now: ${page.address}${page.dialog ? `, with the dialog "${page.dialog}" open` : ''}${page.viewerClicks?.length ? `. Their last clicks: ${page.viewerClicks.join('; ')}` : ''}.`,
+    c.step && `The person is in the guided deck "${c.step.deck}", on "${c.step.title}" (${c.step.at}).`,
+    c.step?.line && `The line said there: "${c.step.line}"`,
+    c.step?.words && `On the slide: ${c.step.words}`,
+    c.step?.buttons && `This step's buttons. ${c.step.buttons}`,
+    c.step?.report && `The last result shown to them: ${c.step.report}`,
+    c.from === 'bar' && c.comesBack && 'They asked from the bar on the page itself, with the walkthrough paused. Your guide say shows there. When they continue, the page is put back on the step, so you need not put it back.',
+    c.from === 'bar' && !c.comesBack && 'No walkthrough is playing. They asked from the bar on the page itself, and your guide say shows there. The page stays where you leave it: go to the page that answers them and point at what you mean.',
+    c.playing && `Only if they ask to go to another part of this walkthrough: guide walk goto <number>. Its steps: ${c.steps.map((title, n) => `${n + 1}. ${title}`).join('; ')}.`,
+    !c.playing && c.walks.length && `Only if they ask for a walkthrough: guide walk start <name>. There are: ${c.walks.map((made) => `${made.name} (${made.title})`).join('; ')}.`,
+    (c.playing || c.walks.length) && 'A start or a jump plays once your guide say has been heard, so say in one sentence what is about to play.',
+    c.page && `The page now: ${c.page.address}${c.page.dialog ? `, with the dialog "${c.page.dialog}" open` : ''}${c.page.clicks.length ? `. Their last clicks: ${c.page.clicks.join('; ')}` : ''}.`,
     // what the page says, read a moment ago, so that most questions need no looking first
-    shown?.ok && shown.text && `What ${page?.dialog ? 'the open dialog' : 'the page'} shows now:\n${shown.text}\n(That is the end of what it shows. guide find or guide read gets a part that was cut off.)`,
-    `They ask: ${text}`,
+    c.page?.shows && `What ${c.page.dialog ? 'the open dialog' : 'the page'} shows now:\n${c.page.shows}\n(That is the end of what it shows. guide find or guide read gets a part that was cut off.)`,
+    `They ask: ${c.question}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -733,8 +764,9 @@ async function answer(text, where) {
     const soon = (asked, ms) => Promise.race([asked, new Promise((done) => setTimeout(() => done(null), ms))]);
     const page = bridge ? await soon(toBridge('cmd', { cmd: 'where' }), 4000) : null;
     const shown = page?.ok ? await soon(toBridge('cmd', { cmd: 'read', most: 4000 }), 4500) : null;
+    const context = contextFor(text, where, page, shown);
     const printed = await new Promise((done, fail) => {
-      const env = { ...process.env, WAG_ASK_ID: talkId, WAG_ASK_N: String(++questions), GUIDE_SESSION: `http://127.0.0.1:${port}`, GUIDE_KEY_FILE: keyFile };
+      const env = { ...process.env, WAG_ASK_ID: talkId, WAG_ASK_N: String(++questions), WAG_ASK_CONTEXT: JSON.stringify(context), GUIDE_SESSION: `http://127.0.0.1:${port}`, GUIDE_KEY_FILE: keyFile };
       const child = spawn('bash', ['-c', askCommand], { stdio: ['pipe', 'pipe', 'inherit'], env });
       let out = '';
       child.stdout.on('data', (chunk) => (out += chunk));
@@ -748,7 +780,7 @@ async function answer(text, where) {
         done(out.trim());
       });
       child.stdin.on('error', () => {});
-      child.stdin.end(promptFor(text, where, page, shown));
+      child.stdin.end(promptFor(context));
     });
     // what the guide said while it answered; if it only printed, that is the answer
     let said = lines.filter((line) => line.n > from && line.who === 'guide');
@@ -767,7 +799,10 @@ async function answer(text, where) {
 // Each step's Show me is done and its Check is read. A step's own click is never pressed: the
 // rehearsal only looks whether its button is there, and leaves that step's check unread. It prints
 // which steps work, writes the same with more detail to rehearsal.md in the session folder, and
-// ends: with 0 when no step failed, with 1 when one did.
+// ends: with 0 when no step failed, with 1 when one did. rehearsal.json is the same for a program:
+// { deck, title, at, ok, steps: [{ step, name, title, state, reason, seconds, checks, did }] }, where
+// state is "works", "words only", "your click", "failed", "stopped" (the guide would not do it) or
+// "check differs", and reason is null for the first two.
 
 async function rehearse(name) {
   const file = name && findWalk(name);
@@ -781,7 +816,7 @@ async function rehearse(name) {
   let broken = 0;
   for (const [n, step] of made.steps.entries()) {
     const began = Date.now();
-    const row = { n: n + 1, title: step.title, result: step.live ? 'works' : 'words only', notes: [], did: [] };
+    const row = { n: n + 1, name: step.name, title: step.title, result: step.live ? 'works' : 'words only', notes: [], did: [], checks: [] };
     rows.push(row);
     const live = step.live ?? {};
     if (live.show?.some((action) => 'go' in action)) broken = 0;
@@ -809,6 +844,7 @@ async function rehearse(name) {
     if (live.check && row.result === 'your click') row.notes.push('its check comes after your click, so it was not read');
     if (live.check && row.result === 'works' && clicked) {
       const read = await toBridge('check', { live: { check: live.check } });
+      row.checks = (read?.results ?? []).map((r) => ({ label: r.label, state: r.skipped ? 'left out' : r.ok ? 'matches' : 'differs', got: r.got, want: r.want }));
       for (const r of read?.results ?? []) {
         if (r.skipped) row.notes.push(`${r.label}: left out, that part is not on this page`);
         else if (r.ok) row.notes.push(`${r.label}: ${r.got}${r.want ? ` matches ${r.want}` : ''}`);
@@ -837,7 +873,13 @@ async function rehearse(name) {
     join(dir, 'rehearsal.md'),
     `# Rehearsal: ${made.title}\n\n${new Date().toLocaleString('en-US')}. ${sum}\n\n${rows.map((row) => `## ${row.n}. ${row.title}: ${row.result} (${row.seconds} s)\n\n${[...row.notes.map((note) => `- ${note}`), ...row.did.map((did) => `- did: ${did}`)].join('\n')}\n`).join('\n')}`,
   );
-  console.log(`In full: ${join(dir, 'rehearsal.md')}`);
+  // the same for a program to read: one record a step, with its state and, when it is not "works", the reason
+  const reason = (row) => (['works', 'words only'].includes(row.result) ? null : row.result === 'check differs' ? row.checks.filter((check) => check.state === 'differs').map((check) => `${check.label}: ${check.got}${check.want ? ` does not match ${check.want}` : ''}`).join('; ') : (row.notes[0] ?? null));
+  writeFileSync(
+    join(dir, 'rehearsal.json'),
+    JSON.stringify({ deck: made.deck, title: made.title, at: new Date().toISOString(), ok: !bad, steps: rows.map((row) => ({ step: row.n, name: row.name, title: row.title, state: row.result, reason: reason(row), seconds: row.seconds, checks: row.checks, did: row.did })) }, null, 1),
+  );
+  console.log(`In full: ${join(dir, 'rehearsal.md')} (and rehearsal.json, the same for a program)`);
   stop(bad ? 1 : 0);
 }
 

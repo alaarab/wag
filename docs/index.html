@@ -535,7 +535,7 @@ guide walk goto 4 # or words from a step's title; guide walk list shows the walk
   <pre><code class="sh">node scripts/session.mjs --deck dist --bar /app.html --ask scripts/ask.sh \
   --bridge "node scripts/live.mjs --stdio --live --app http://127.0.0.1:5173/guide"</code></pre>
   <h4>Rehearse before you show it</h4>
-  <p><code>--rehearse &lt;deck&gt;</code> plays every step of a walk with nobody watching: no voice, no bar, no waiting. Each Show me is done and each Check is read. A step's own click is never pressed: the rehearsal looks whether its button is there and leaves that step's check unread. It prints one line a step, writes the detail to <code>rehearsal.md</code> in the session folder, and ends with 1 if a step did not work.</p>
+  <p><code>--rehearse &lt;deck&gt;</code> plays every step of a walk with nobody watching: no voice, no bar, no waiting. Each Show me is done and each Check is read. A step's own click is never pressed: the rehearsal looks whether its button is there and leaves that step's check unread. It prints one line a step, writes the detail to <code>rehearsal.md</code> in the session folder, and ends with 1 if a step did not work. <code>rehearsal.json</code> is the same for a program: one record a step, with its <code>state</code> (<code>works</code>, <code>words only</code>, <code>your click</code>, <code>failed</code>, <code>stopped</code>, <code>check differs</code>) and, when it did not work, the <code>reason</code>.</p>
   <pre><code>  1. words only        0 s  A deck that drives the page
   2. works           0.8 s  Open the page
   3. works           0.6 s  Pick the month
@@ -560,6 +560,7 @@ node scripts/session.mjs --deck dist --ask scripts/ask.sh \
 # open http://127.0.0.1:5191/?deck=my-deck&key=$(cat ~/.cache/wag/bridge.token)</code></pre>
   <p>To try it on the made-up <code>guided</code> deck, serve its page plainly with <code>python3 -m http.server 5180 --directory dist</code> and add <code>--app http://127.0.0.1:5180/guide</code> to the bridge command. The session keeps a deck's own files behind its key, so the driven browser cannot load the made-up page from the session itself.</p>
   <p><code>--ask</code> takes any command. It is run once per question with the question on its input, and it answers by running <code>guide say</code> or simply by printing the answer. <code>scripts/ask.sh</code> is one that uses Claude Code on a fast model, allowed to run <code>guide</code> and nothing else; set <code>ASK_DIR</code> to a folder holding a map of your page. The session's console page has the same box.</p>
+  <p>Whoever answers is told the same things, in one shape: the question, where it was asked from, the page (its address, title, open dialog, the viewer's last clicks, and the text it shows), the step of the walkthrough they are on, and the walks that could be started. A command that reads gets it as plain sentences on its input. A command that is a program, passing the question on to another service, gets it whole as JSON in <code>WAG_ASK_CONTEXT</code>. It is never written to the session folder.</p>
 </section>
 
 <section id="outside">
@@ -587,6 +588,7 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
     <tr><td><code>GUIDE_SESSION</code></td><td>The session's address for <code>guide</code> (default <code>http://127.0.0.1:5191</code>)</td></tr>
     <tr><td><code>GUIDE_KEY_FILE</code></td><td>Where the session wrote its key (default <code>~/.cache/wag/bridge.token</code>)</td></tr>
     <tr><td><code>GUIDE_BRIDGE</code></td><td>Point <code>guide</code> straight at a bridge that listens by itself</td></tr>
+    <tr><td><code>WAG_ASK_CONTEXT</code></td><td>Set for the <code>--ask</code> command: the question and where the person is, as JSON</td></tr>
     <tr><td><code>ASK_DIR</code>, <code>GUIDE_MODEL</code></td><td>For <code>scripts/ask.sh</code>: the folder with your page map, and the model that answers</td></tr>
   </table>
   <table>
