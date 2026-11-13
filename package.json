@@ -30,5 +30,8 @@
   "bin": {
     "wag": "bin/wag.mjs",
     "guide": "scripts/guide.mjs"
+  },
+  "overrides": {
+    "image-size": "^2.0.3"
   }
 }
