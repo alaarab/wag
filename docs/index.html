@@ -200,6 +200,7 @@ footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; ju
   <a href="#live">Live guide</a>
   <a href="#walk">A walk on the page</a>
   <a href="#ask">Ask, inside the deck</a>
+  <a href="#pack">Packs</a>
   <b>More</b>
   <a href="#outside">Private decks</a>
   <a href="#pptx">PowerPoint</a>
@@ -221,7 +222,9 @@ npm run new my-deck      # decks/my-deck.ts, from a small starter</code></pre>
     <li><code>guided</code>: a guided deck that drives a made-up page, <code>public/guide/app.html</code>.</li>
   </ul>
   <pre><code class="sh">npm run make guide       # narration audio and Word handouts for a deck
-npm run build            # a static copy of the player and every deck, in dist/</code></pre>
+npm run build            # a static copy of the player and every deck, in dist/
+npm test                 # the bridge and the live session, against the made-up page</code></pre>
+  <p><code>npx wag</code> is the same under one name (<code>wag new</code>, <code>wag dev</code>, <code>wag make</code>, <code>wag build</code>), with two more for a live session on an app's pages: <code>wag live</code> and <code>wag rehearse</code>, which take a <a href="#pack">pack</a>.</p>
   <p>The build is plain files that any static file server can show. You need a recent Node. The offline voice needs Python and <code>ffmpeg</code>, and guided mode needs a Chromium browser (Chrome, Edge or Chromium).</p>
 </section>
 
@@ -381,7 +384,7 @@ shot('/guide/page.png', {
     }],
   },
 }, [...])</code></pre>
-  <p>Besides <code>go</code>, <code>click</code>, <code>choose</code>, <code>point</code> and <code>wait</code>, Show me can put words in a text box with <code>{ fill: 'words', into: target }</code>: it only fills the box, and a page that tries to send anything as it is typed in is stopped. For a page that differs between versions, <code>{ if: { see: 'New part' }, then: [...], else: [...] }</code> takes one branch or the other, and a check with <code>when: { see: 'New part' }</code> is left out, and said to be, when that part is not there.</p>
+  <p>Besides <code>go</code>, <code>click</code>, <code>choose</code>, <code>point</code> and <code>wait</code>, Show me can put words in a text box with <code>{ fill: 'words', into: target }</code>: it only fills the box, and a page that tries to send anything as it is typed in is stopped. For a page that differs between versions, <code>{ if: { see: 'New part' }, then: [...], else: [...] }</code> takes one branch or the other, and a check with <code>when: { see: 'New part' }</code> is left out, and said to be, when that part is not there. An <code>if</code> does not guess: a part that is still on its way is waited for, and one that is not coming is given up on as soon as the page has gone quiet.</p>
   <div class="pair">
     <figure>
       <img src="img/showme-page.png" alt="A made-up page with a dialog; the amount 412.50 has a blue ring and a note saying The amount this entry has to move" loading="lazy" />
@@ -465,13 +468,14 @@ node scripts/live.mjs --serve dist --live --downloads ~/Downloads</code></pre>
   <h3>What it will not do</h3>
   <div class="note safe"><p>The rules live in the bridge, not in the deck, so a mistake in a deck cannot get past them.</p></div>
   <ul>
-    <li><strong>It never presses anything that commits.</strong> Before every click the bridge reads the real control's label off the page and refuses one that starts with save, post, approve, submit, delete, send, remove, reject, confirm, apply, run, import, sync, void, reverse, pay, create, update, mark, undo, close the period or reopen (the list is <code>COMMITS</code> in <code>src/scene.ts</code>). <code>slide()</code> also rejects such a Show me step when the deck is built. Those steps are My turn only, and My turn has to say what the click will do.</li>
-    <li><strong>It refuses dialog buttons it cannot classify</strong>, and says why.</li>
-    <li><strong>On a page that is not on this machine, a click may only read.</strong> While the bridge is clicking, anything else the page tries to send is stopped, and the step is handed back to you as yours.</li>
+    <li><strong>It never presses anything that commits.</strong> Before every click the bridge reads the real control's label off the page and refuses one that starts with save, post, approve, submit, delete, send, remove, reject, confirm, apply, run, import, sync, void, reverse, pay, create, update, mark, undo or reopen (the list is <code>COMMITS</code> in <code>src/scene.ts</code>). <code>slide()</code> also rejects such a Show me step when the deck is built. Those steps are My turn only, and My turn has to say what the click will do.</li>
+    <li><strong>It refuses dialog buttons it cannot classify</strong>, and says why. "Close", "Cancel", "Back" and "Next" count as only looking when that is the whole label: "Close" shuts a dialog, "Close" followed by more may not.</li>
+    <li><strong>On a page that is not on this machine, the guide may only read.</strong> While it presses, picks from a list or types, anything else the page tries to send is stopped, whatever the control was called, and the step is handed back to you as yours. Two things a browser sends by itself are let through: its report that a page broke its own content rules (what the report said goes in the log), and the renewal of a sign-in.</li>
+    <li><strong>In a live session a file is yours to take.</strong> A button that says it downloads is not pressed, and a download that the guide's own press sets off anyway is cancelled before it reaches your folder.</li>
     <li><strong>It leaves a browser with a window alone</strong> unless the person at it started a live session with <code>--live</code>.</li>
     <li><strong>Every command and every refusal goes to a log</strong>, <code>bridge.log</code>, next to the key.</li>
   </ul>
-  <p>An app that reads with POST can list those paths with <code>--reads /api/search,/api/report</code>.</p>
+  <p>The words built in are general ones. An app's own are given when the bridge starts, each as <code>"words,words"</code>: <code>--changes</code> for a control that changes something, <code>--looks</code> for a dialog button that only looks, <code>--files-on</code> for a button that hands over a file. An app that reads with POST lists those paths with <code>--reads /api/search,/api/report</code>. A <a href="#pack">pack</a> carries all of these, so they need not be typed.</p>
 </section>
 
 <section id="live">
@@ -568,6 +572,41 @@ node scripts/session.mjs --deck dist --ask scripts/ask.sh \
   <p>Whoever answers is told the same things, in one shape: the question, where it was asked from, the page (its address, title, open dialog, the viewer's last clicks, and the text it shows), the step of the walkthrough they are on, and the walks that could be started. A command that reads gets it as plain sentences on its input. A command that is a program, passing the question on to another service, gets it whole as JSON in <code>WAG_ASK_CONTEXT</code>. It is never written to the session folder.</p>
 </section>
 
+<section id="pack">
+  <h3>Packs: what a session knows about an app</h3>
+  <p>A pack is a folder with a <code>pack.json</code>: everything a live session needs to know about one app. Keep it wherever suits, outside this repo for an app that is not yours to publish. Paths in it are from the pack's folder.</p>
+  <pre><code>{
+  "app": "https://app.example",
+  "start": "/",
+  "decks": "out",
+  "label": "PRIVATE: real data",
+  "pronounce": { "Q3": "quarter three" },
+  "looks": ["show the sums", "see why"],
+  "changes": ["close the month"],
+  "filesOn": ["the entry"],
+  "reads": ["/api/search"],
+  "ask": { "dir": "notes" },
+  "browser": { "cdp": "http://127.0.0.1:9333" }
+}</code></pre>
+  <table>
+    <tr><th>Field</th><th>What it says</th></tr>
+    <tr><td><code>app</code>, <code>start</code></td><td>Where the app's pages are, and the page the bar opens on when nothing is playing</td></tr>
+    <tr><td><code>decks</code></td><td>The built decks to play</td></tr>
+    <tr><td><code>looks</code>, <code>changes</code>, <code>filesOn</code></td><td>The app's own words for a dialog button that only looks, a control that changes something, and a button that hands over a file</td></tr>
+    <tr><td><code>reads</code></td><td>Addresses the app reads from with a POST</td></tr>
+    <tr><td><code>label</code>, <code>pronounce</code></td><td>A label for the console and for recordings; how to say the app's words</td></tr>
+    <tr><td><code>ask</code></td><td>Who answers questions: <code>dir</code> holds notes on the pages, <code>command</code> is another answerer, <code>prompt</code> and <code>model</code> are for the built-in one</td></tr>
+    <tr><td><code>browser</code></td><td>The browser to drive (<code>cdp</code>), and where its files go (<code>files</code>, <code>downloads</code>)</td></tr>
+    <tr><td><code>bridge</code></td><td>A command that runs the bridge on another machine, with <code>{args}</code> where its options go</td></tr>
+    <tr><td><code>sessions</code></td><td>Where each session's folder and key are kept; <code>sessions</code> beside the pack unless said</td></tr>
+  </table>
+  <pre><code class="sh">npx wag live my-pack                  # the bar on the app's pages: F2 asks, Walks starts a walk
+npx wag live my-pack --walk my-deck   # start with a walk
+npx wag rehearse my-pack my-deck      # play it with nobody watching and say which steps work
+npx wag guide --pack my-pack where    # the guide's commands, pointed at that session</code></pre>
+  <p><code>examples/snack</code> is a pack for the made-up page, to try these on. <code>wag</code> is also the short name for the rest: <code>wag new</code>, <code>wag dev</code>, <code>wag make</code>, <code>wag build</code>.</p>
+</section>
+
 <section id="outside">
   <h2><span class="k">More</span>Decks outside the repo</h2>
   <p>A deck made from private material should not sit in this repo. Set <code>WAG_DECKS</code> to a folder elsewhere: its <code>*.ts</code> files are listed and played with the repo's own, and its <code>public/</code> folder is served the same way.</p>
@@ -604,13 +643,16 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
     <tr><td><code>src/pptx.ts</code></td><td>The .pptx exporter</td></tr>
     <tr><td><code>app/</code></td><td>The page that lists and plays decks</td></tr>
     <tr><td><code>decks/</code></td><td>One file per deck</td></tr>
+    <tr><td><code>bin/wag.mjs</code></td><td>The <code>wag</code> command, and what a pack is</td></tr>
+    <tr><td><code>examples/snack/</code></td><td>A pack for the made-up page</td></tr>
+    <tr><td><code>tests/</code></td><td><code>npm test</code>: the bridge and the session as their own programs, against the made-up page</td></tr>
     <tr><td><code>scripts/make.mjs</code></td><td>Narration audio, Word handouts and <code>wag.json</code></td></tr>
     <tr><td><code>scripts/live.mjs</code></td><td>The bridge that drives a browser</td></tr>
     <tr><td><code>scripts/session.mjs</code>, <code>guide.mjs</code>, <code>voice.py</code></td><td>The live guide: session, command and warm voice</td></tr>
     <tr><td><code>scripts/ask.sh</code></td><td>An answerer for the Ask box</td></tr>
     <tr><td><code>spike/</code></td><td>The script that first tested which animation XML PowerPoint accepts</td></tr>
   </table>
-  <div class="note warn"><p>wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.</p></div>
+  <div class="note warn"><p>wag is an early prototype. <code>npm test</code> runs the bridge and the live session as their own programs against the made-up page, in a browser with no window: what they do, and above all what they refuse. It needs a Chromium on the machine. The slides, the player and the PowerPoint export are still checked by hand.</p></div>
 </section>
 
 </main>

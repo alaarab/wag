@@ -22,7 +22,10 @@ npm run dev              # http://localhost:5179 lists every deck
 npm run new my-deck      # decks/my-deck.ts, from a small starter
 npm run make guide       # narration audio and Word handouts for a deck
 npm run build            # a static copy of the player and every deck, in dist/
+npm test                 # the bridge and the live session, against the made-up page
 ```
+
+`npx wag` is the same under one name (`wag new`, `wag dev`, `wag make`, `wag build`), with two more for a live session on an app's pages: `wag live <pack>` and `wag rehearse <pack> <deck>`. See [Packs](#packs).
 
 Three decks ship with the repo, all about made-up things: `demo` (what slides can do), `guide` (a narrated walkthrough) and `guided` (a deck that drives a made-up page, `public/guide/app.html`).
 
@@ -115,7 +118,13 @@ node scripts/live.mjs --serve dist
 
 To watch it on your own screen, start the browser with a window and add `--live`: the bridge then works in the tab you are looking at, and downloads become your own click.
 
-**What it will not do.** Before every click the bridge reads the real control's label and refuses anything that saves, posts, approves, submits, deletes, sends or otherwise commits (`COMMITS` in `src/scene.ts`), and any dialog button it cannot classify. On a page that is not on this machine, a click may only read: anything else the page tries to send is stopped. Every start makes a new key, and every command and refusal goes to `bridge.log`. Your app's own words for a dialog button that only looks go in `--looks "words,words"`, and its words for a button that hands over a file in `--files-on "words,words"`. Those steps are My turn only, and My turn has to say what the click will do.
+**What it will not do.** Before every click the bridge reads the real control's label and refuses anything that saves, posts, approves, submits, deletes, sends or otherwise commits (`COMMITS` in `src/scene.ts`), and any dialog button it cannot classify. Those steps are My turn only, and My turn has to say what the click will do. A label is not trusted on its own, though:
+
+- On a page that is not on this machine, a press, a pick from a list or typing may only read. Anything else the page tries to send while the guide acts is stopped. Two things a browser sends by itself are let through: its report that a page broke its own content rules, and the renewal of a sign-in.
+- In a live session a file is yours to take. A download that the guide's own press sets off is cancelled, whatever the button was called.
+- "Close", "Cancel", "Back" and "Next" are pressed in a dialog only when that is the whole label.
+
+The words built in are general ones. Your app's own go in a [pack](#packs), or on the bridge's command line: `--changes` (a control that changes something), `--looks` (a dialog button that only looks), `--files-on` (a button that hands over a file). Every start makes a new key, and every command and refusal goes to `bridge.log`.
 
 **Live guide.** `scripts/session.mjs` and the `guide` command let an assistant and a person share one tab: the assistant rings things, reads the page and talks (`guide highlight`, `guide read`, `guide say`), through the same bridge and the same rules. See the [docs page](docs/index.html#live).
 
@@ -141,6 +150,46 @@ In a live session the guide never takes over a tab you had open on something els
 
 <img src="docs/img/ask.png" alt="A guided slide with an Ask panel: two questions and their answers" width="820">
 
+## Packs
+
+A pack is a folder with a `pack.json`: everything a live session needs to know about one app. Keep it wherever suits, outside this repo for an app that is not yours to publish. Paths in it are from the pack's folder.
+
+```json
+{
+  "app": "https://app.example",
+  "start": "/",
+  "decks": "out",
+  "label": "PRIVATE: real data",
+  "pronounce": { "Q3": "quarter three" },
+  "looks": ["show the sums", "see why"],
+  "changes": ["close the month"],
+  "filesOn": ["the entry"],
+  "reads": ["/api/search"],
+  "ask": { "dir": "notes" },
+  "browser": { "cdp": "http://127.0.0.1:9333" }
+}
+```
+
+| Field | What it says |
+|---|---|
+| `app`, `start` | Where the app's pages are, and the page the bar opens on when nothing is playing |
+| `decks` | The built decks to play |
+| `looks`, `changes`, `filesOn` | The app's own words for a dialog button that only looks, a control that changes something, and a button that hands over a file |
+| `reads` | Addresses the app reads from with a POST |
+| `label`, `pronounce` | A label for the console and recordings; how to say the app's words |
+| `ask` | Who answers questions: `dir` holds notes on the pages, `command` another answerer, `prompt` and `model` for the built-in one |
+| `browser` | The browser to drive (`cdp`), and where its files go (`files`, `downloads`) |
+| `bridge` | A command that runs the bridge on another machine, with `{args}` where its options go |
+
+```sh
+npx wag live my-pack                  # the bar on the app's pages: F2 asks, Walks starts a walk
+npx wag live my-pack --walk my-deck   # start with a walk
+npx wag rehearse my-pack my-deck      # play it with nobody watching and say which steps work
+npx wag guide --pack my-pack where    # the guide's commands, pointed at that session
+```
+
+`examples/snack` is a pack for the made-up page that ships with wag.
+
 ## Private decks
 
 A deck made from private material should not sit in this repo. Point `WAG_DECKS` at a folder elsewhere; its decks are listed with the repo's own and its `public/` is served the same way.
@@ -163,10 +212,13 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 - `app/`: the page that lists and plays decks
 - `decks/`: one file per deck
 - `docs/`: the docs page and its pictures
+- `bin/wag.mjs`: the `wag` command, and what a pack is
+- `examples/snack/`: a pack for the made-up page
+- `tests/`: `npm test`, the bridge and the session against the made-up page
 - `scripts/make.mjs`: narration audio and Word handouts
 - `scripts/live.mjs`: the bridge that drives a browser
 - `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
 - `scripts/ask.sh`: an answerer for the Ask box, using Claude Code
 - `spike/`: the script that first tested which animation XML PowerPoint accepts
 
-wag is an early prototype. It has been checked by hand in a browser and has no automated tests yet.
+wag is an early prototype. `npm test` runs the bridge and the live session as their own programs against the made-up page, in a browser with no window: what they do, and above all what they refuse. It needs a Chromium on the machine. The slides, the player and the PowerPoint export are still checked by hand.

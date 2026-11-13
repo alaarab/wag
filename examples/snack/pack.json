@@ -1,5 +1,5 @@
 {
-  "app": "http://127.0.0.1:5173/guide",
+  "app": "http://127.0.0.1:5179/guide",
   "start": "/app.html",
   "decks": "../../dist",
   "sessions": "sessions",

@@ -314,6 +314,14 @@ let saidNow = [];
 /** where the page was when the question came (its address and its open dialog), and what answering did to it */
 let place = null;
 let moved = { clicked: false, went: false };
+/** Nothing is being asked and nothing is paused: the state a walk starts in, a jump lands in, and the bar rests in. */
+function settle() {
+  paused = false;
+  question = '';
+  saidNow = [];
+  place = null;
+  moved = { clicked: false, went: false };
+}
 
 async function draw(patch) {
   view = { ...(view ?? {}), ...patch, sound };
@@ -382,9 +390,7 @@ async function floor({ go = false } = {}) {
     const there = await toBridge('cmd', { cmd: 'goto', to: floorAt });
     if (!there?.ok) console.log(`The bar's first page did not open: ${there?.why}`);
   }
-  paused = false;
-  question = '';
-  saidNow = [];
+  settle();
   const list = menu();
   await draw({ head: 'Guide', caption: `Ready. F2 to ask about any page.${list.items.length ? ' Walks lists the walkthroughs.' : ''}`, asked: '', mark: '', next: '', back: false, auto: undefined, busy: false, menu: list });
   return { ok: true };
@@ -395,11 +401,7 @@ async function startWalk(name) {
   if (!file) return { ok: false, why: `No walk for "${name}". Run "npm run make ${name}", build, and start the session with --deck.` };
   const made = JSON.parse(readFileSync(file, 'utf8'));
   walk = { ...made, dir: dirname(file), at: 0, run: 0, auto: false, done: false, shown: -1, report: '', timer: null };
-  paused = false;
-  question = '';
-  saidNow = [];
-  place = null;
-  moved = { clicked: false, went: false };
+  settle();
   // the bar needs a tab the guide may act in: the first address the steps go to, in a tab of its own if need be
   const first = walk.steps.flatMap((step) => step.live?.show ?? []).find((action) => 'go' in action)?.go;
   if (first) {
@@ -455,11 +457,7 @@ async function jump(at) {
   // the page is as the steps left it only if they were played in order and no answer has moved it since
   const inOrder = walk.done && !paused && !question && !(moved.clicked || moved.went);
   const was = walk.at;
-  paused = false;
-  question = '';
-  saidNow = [];
-  place = null;
-  moved = { clicked: false, went: false };
+  settle();
   walk.moving = null;
   walk.shown = -1;
   const opens = (step) => Boolean(step.live?.show?.some((action) => 'go' in action));
