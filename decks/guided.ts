@@ -5,20 +5,29 @@
 //   open http://127.0.0.1:5180/?deck=guided
 // Show me does the step, My turn rings what to click and waits for you, Check reads the page and
 // the downloaded workbook and says whether they agree. The deck never presses "Post entry".
-import { box, dark, deck, slide, text } from 'wag';
+import { aurora, box, dark, deck, fade, look, slide, text } from 'wag';
 
 const t = dark;
-const rise = { dy: 30, opacity: 0 };
+const rise = { dy: 26, opacity: 0 };
+const TONES: Record<string, string> = { 'Show me': t.accent, 'My turn': t.warn, Check: t.good };
 
 /** One guided step: a heading, what it is for, and what each of its buttons will do. */
 const step = (name: string, title: string, about: string, buttons: string[], options: Parameters<typeof slide>[0]) =>
   slide({ name, title, stagger: 0.07, ...options }, [
-    text(title, { x: 80, y: 90, w: 1120, h: 70, fontSize: 52, weight: 800, color: t.ink, enter: rise }),
-    text(about, { x: 80, y: 180, w: 1050, h: 110, fontSize: 26, color: t.dim, enter: rise }),
-    ...buttons.flatMap((line, i) => [
-      box({ x: 80, y: 330 + i * 86, w: 1120, h: 72, radius: 14, fill: t.panel, enter: rise }),
-      text(line, { x: 104, y: 330 + i * 86, w: 1072, h: 72, fontSize: 22, color: t.ink, valign: 'middle', enter: rise }),
-    ]),
+    aurora({ theme: t, strength: 0.35 }),
+    text(title, { x: 80, y: 84, w: 1120, h: 70, font: t.display, fontSize: 54, weight: 800, tracking: -0.035, leading: 1.04, color: t.ink, reveal: 'words' }),
+    text(about, { x: 80, y: 170, w: 1040, h: 110, fontSize: 25, leading: 1.4, color: t.dim, enter: rise }),
+    ...buttons.flatMap((line, i) => {
+      // a line that starts with a button's name gets that name as a tag in the button's colour
+      const button = Object.keys(TONES).find((label) => line.startsWith(label));
+      const does = button ? line.slice(button.length).replace(/^[:\s]+/, '') : line;
+      const y = 322 + i * 88;
+      return [
+        box({ x: 80, y, w: 1120, h: 74, radius: 16, fill: t.panel, stroke: t.line, strokeWidth: 1, shadow: t.shadow, enter: rise }),
+        ...(button ? [box({ x: 102, y: y + 22, w: 104, h: 30, radius: 15, fill: fade(TONES[button], 0.14), stroke: fade(TONES[button], 0.4), strokeWidth: 1, color: TONES[button], font: t.mono, fontSize: 12.5, weight: 500, tracking: 0.08, caps: true, text: button, enter: rise })] : []),
+        text(does, { x: button ? 226 : 104, y, w: button ? 950 : 1072, h: 74, fontSize: 21, color: t.ink, valign: 'middle', enter: rise }),
+      ];
+    }),
   ]);
 
 const start = step('start', 'A deck that drives the page', 'Each step from here has up to three buttons in the bar below. The page it drives is a made-up snack budget.', ['Show me: the deck does the step', 'My turn: it rings what to click and waits for you', 'Check: it reads the page and says whether it matches'], {
@@ -67,4 +76,4 @@ const post = step('post', 'Post it: your click', 'Posting changes the ledger, so
   },
 });
 
-export default deck({ title: 'A guided deck', assets: '/guide', app: '/guide' }, [start, open, month, item, entry, post]);
+export default deck({ ...look(t), title: 'A guided deck', assets: '/guide', app: '/guide' }, [start, open, month, item, entry, post]);

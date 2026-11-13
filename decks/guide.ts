@@ -1,10 +1,17 @@
 // A guided walkthrough: narration, a "how this came up" story, a screenshot with callouts, and
 // files to take away. Everything in it is made up, including the page in the picture.
 // `npm run make guide` writes its audio and Word handouts; without that the browser's voice reads it.
-import { box, dark, deck, shot, slide, story, text } from 'wag';
+import { aurora, box, dark, deck, fade, look, shot, slide, story, text } from 'wag';
 
 const t = dark;
-const rise = { dy: 40, opacity: 0 };
+const rise = { dy: 30, opacity: 0 };
+const eyebrow = (content: string) => text(content, { x: 84, y: 150, w: 800, h: 22, font: t.mono, fontSize: 13, weight: 500, tracking: 0.18, caps: true, color: t.faint, enter: { opacity: 0, dy: 10 } });
+const big = (content: string, h: number) => text(content, { x: 80, y: 184, w: 1120, h, font: t.display, fontSize: 88, weight: 800, tracking: -0.04, leading: 1, color: t.ink, reveal: 'words' });
+/** a key, drawn as a key */
+const key = (letter: string, does: string, x: number) => [
+  box({ x, y: 596, w: 34, h: 34, radius: 9, fill: fade(t.ink, 0.07), stroke: fade(t.ink, 0.2), strokeWidth: 1, color: t.ink, font: t.mono, fontSize: 15, text: letter, enter: { opacity: 0, delay: 0.9 } }),
+  text(does, { x: x + 46, y: 596, w: 220, h: 34, fontSize: 17, color: t.faint, valign: 'middle', enter: { opacity: 0, delay: 0.9 } }),
+];
 
 const start = slide(
   {
@@ -14,10 +21,13 @@ const start = slide(
     narration: 'This deck talks. Each slide has lines that are said when it arrives and after each step. Press the right arrow to move, or switch on Auto and let it play.',
   },
   [
-    text('A deck that\nwalks you through', { x: 80, y: 170, w: 1100, h: 200, fontSize: 84, weight: 800, color: t.ink, enter: rise }),
-    box({ x: 84, y: 390, w: 120, h: 6, radius: 3, fill: t.accent, enter: { opacity: 0 } }),
-    text('Narration, a story slide, a screenshot with callouts, and files to take away.', { x: 80, y: 420, w: 1000, h: 80, fontSize: 28, color: t.dim, enter: rise }),
-    text('P plays or pauses the voice.  A switches Auto.  C shows the words.', { x: 80, y: 600, w: 1000, h: 30, fontSize: 19, color: t.dim, enter: { opacity: 0, delay: 0.4 } }),
+    aurora({ theme: t, strength: 0.85 }),
+    eyebrow('A narrated walkthrough'),
+    big('A deck that\n*walks you through.*', 190),
+    text('Narration, a story slide, a screenshot with callouts, and files to take away.', { x: 84, y: 410, w: 760, h: 80, fontSize: 25, leading: 1.4, color: t.dim, enter: { ...rise, delay: 0.5 } }),
+    ...key('P', 'plays or pauses the voice', 84),
+    ...key('A', 'switches Auto', 400),
+    ...key('C', 'shows the words', 630),
   ]
 );
 
@@ -66,9 +76,11 @@ const end = slide(
     downloads: [{ label: 'The made-up page', href: '/guide/page.png' }],
   },
   [
-    text('Files to take away', { x: 80, y: 200, w: 1100, h: 90, fontSize: 68, weight: 800, color: t.ink, enter: rise }),
-    text('The Files button in the bar lists what this slide offers.\nAfter `npm run make guide` it also offers a Word handout per slide\nand the whole deck as one document.', { x: 80, y: 320, w: 1100, h: 140, fontSize: 28, color: t.dim, enter: rise }),
+    aurora({ theme: t, strength: 0.6 }),
+    eyebrow('The end'),
+    big('Files to *take away.*', 100),
+    text('The Files button in the bar lists what this slide offers. After `npm run make guide` it also offers a Word handout for each slide, and the whole deck as one document.', { x: 84, y: 318, w: 860, h: 130, fontSize: 25, leading: 1.4, color: t.dim, enter: { ...rise, delay: 0.5 } }),
   ]
 );
 
-export default deck({ title: 'A guided walkthrough', assets: '/guide', pronounce: { 'npm run make': 'N P M run make' } }, [start, cameUp, page, end]);
+export default deck({ ...look(t), title: 'A guided walkthrough', assets: '/guide', pronounce: { 'npm run make': 'N P M run make' } }, [start, cameUp, page, end]);
