@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>A page that sends</title></head>
+<body>
+<main>
+  <h1>A page that sends</h1>
+  <!-- its label only looks, but pressing it writes: the label is not to be trusted -->
+  <button id="more">Show details</button>
+  <!-- saves by itself as you type -->
+  <input id="note" aria-label="Note" placeholder="Note">
+  <input id="agree" type="checkbox" aria-label="Agree">
+  <select id="colour" aria-label="Colour"><option>Red</option><option>Green</option></select>
+  <p id="state">nothing sent</p>
+</main>
+<script>
+  const state = document.getElementById('state');
+  const send = (path, body) => fetch(path, { method: 'POST', body }).then(() => (state.textContent = 'sent ' + path), () => (state.textContent = 'stopped ' + path));
+  document.getElementById('more').onclick = () => send('/save', 'details');
+  document.getElementById('note').oninput = (event) => send('/autosave', event.target.value);
+  document.getElementById('colour').onchange = (event) => send('/prefer', event.target.value);
+</script>
+</body>
+</html>

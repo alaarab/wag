@@ -153,15 +153,24 @@ async function tab() {
     page = null;
     // A browser with a window is someone's: their own downloads must go where they always go. Connecting
     // Playwright redirects them to a temporary folder it empties on leaving, so that is undone here.
-    if (windowed) await (await browser.newBrowserCDPSession()).send('Browser.setDownloadBehavior', { behavior: 'default' }).catch(() => {});
+    const session = await browser.newBrowserCDPSession();
+    if (windowed) await session.send('Browser.setDownloadBehavior', { behavior: 'default', eventsEnabled: true }).catch(() => {});
+    // In a live session a file is the viewer's to take. A download that the guide's own press sets off,
+    // whatever the button was called, is stopped before it lands, and the press is reported as refused.
+    const stopIfOurs = (event) => {
+      if (!liveSession || !acting) return false;
+      stoppedFiles.push(event.suggestedFilename);
+      void session.send('Browser.cancelDownload', { guid: event.guid }).catch(() => {});
+      return true;
+    };
+    if (windowed) session.on('Browser.downloadWillBegin', stopIfOurs);
     // in a windowless browser any download goes to the bridge's folder under its own name
     if (!windowed) {
-      const session = await browser.newBrowserCDPSession();
       await session.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: liveSession ? downloadsDir : filesDir, eventsEnabled: true }).catch(() => {});
       // the browser names each file by a random id; when it is complete, name it as the step asked
       // (noted when it began: the step may be over by the time it ends), or else by its own name
       const names = new Map();
-      session.on('Browser.downloadWillBegin', (event) => names.set(event.guid, { name: event.suggestedFilename, as: wanted?.as }));
+      session.on('Browser.downloadWillBegin', (event) => stopIfOurs(event) || names.set(event.guid, { name: event.suggestedFilename, as: wanted?.as }));
       session.on('Browser.downloadProgress', (event) => {
         if (event.state !== 'completed' || !names.has(event.guid)) return;
         const { name, as } = names.get(event.guid);
@@ -263,8 +272,13 @@ function watchInPage() {
 
 /** Every download in the guide's tab is kept, whoever clicked: by the name the guide asked for, or the file's own. */
 let wanted = null;
+/** while the guide itself is pressing, picking or typing; and the files such a press tried to hand over in a live session */
+let acting = false;
+let stoppedFiles = [];
 let lastDownload = null;
 async function keepDownload(download) {
+  // set off by the guide's own press in a live session: it is being stopped, not kept
+  if (liveSession && acting) return void download.cancel().catch(() => {});
   const name = wanted?.as ? wanted.as + extname(download.suggestedFilename()) : download.suggestedFilename();
   const file = join(wanted?.dir ?? downloadsDir, name);
   // in a windowless browser the browser itself writes the file (see tab()) and this fails; that path keeps it
@@ -280,6 +294,21 @@ async function keepDownload(download) {
  * if the control was mislabelled. Pages on this machine (practice pages) are left alone.
  */
 async function lookOnly(work) {
+  acting = true;
+  stoppedFiles = [];
+  try {
+    const result = await sendingOnlyReads(work);
+    // a download begins a moment after the press that sets it off
+    if (liveSession) await page.waitForTimeout(350);
+    if (stoppedFiles.length) throw new Refused(`That press started a download (${stoppedFiles.join(', ')}), and in a live session a download is your own click. It was stopped before it reached your folder. The guide can ring the button and wait for you.`);
+    return result;
+  } finally {
+    acting = false;
+  }
+}
+
+/** Do it, and on a page that is not on this machine let nothing but reads out while it happens. */
+async function sendingOnlyReads(work) {
   if (isLocal(page.url())) {
     // a page on this machine may do anything, but the guide's own clicks are still not the viewer's
     await page.evaluate(() => (window.__wagActing = true)).catch(() => {});
@@ -647,6 +676,9 @@ function barInPage(state) {
     `);
     root.adoptedStyleSheets = [sheet];
     const wrap = el('div', 'wrap');
+    // a named region, so a screen reader can find the bar and say what it is
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', 'Guide');
     const head = el('div', 'head');
     const step = el('span');
     const mark = el('span', 'mark');
@@ -752,7 +784,6 @@ function barInPage(state) {
     placing = setInterval(place, 500);
     bar = window.__wagBar = {
       host,
-      root,
       off() {
         clearInterval(placing);
         removeEventListener('keydown', onKey, true);
