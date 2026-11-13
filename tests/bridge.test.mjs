@@ -70,6 +70,19 @@ describe('the bridge on the made-up page', { skip }, () => {
     assert.match(clicked.address, /month=marzember/);
     await b.cmd('bar', { state: null });
   });
+
+  test('a step that branches waits for a part that is still on its way, and for no longer', async () => {
+    const pages = await serve(join(repo, 'tests/pages'));
+    await b.cmd('goto', { to: `${pages.origin}/sends.html` });
+    const branch = { if: { see: 'Arrived after a while' }, then: [{ point: 'Arrived after a while' }], else: [{ point: 'A page that sends' }] };
+    // nothing is on its way yet: the page is quiet, so the answer comes at once
+    const began = Date.now();
+    assert.deepEqual((await b.show(branch)).done, ['Pointed at A page that sends']);
+    assert.ok(Date.now() - began < 1500, 'a part that is not coming should not cost a wait');
+    // pressed, the page reads something that takes most of two seconds before the part shows
+    const shown = await b.show({ click: { role: 'button', name: 'Show the late part' } }, branch);
+    assert.deepEqual(shown.done.slice(1), ['Pointed at Arrived after a while']);
+  });
 });
 
 describe('the bridge in a session the viewer started', { skip }, () => {

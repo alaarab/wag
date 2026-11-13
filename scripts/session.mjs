@@ -225,7 +225,7 @@ async function stopRecording({ gif = false, width = 960 } = {}) {
   const length = (Date.now() - done.began) / 1000;
   if (!done.frames.length) return { ok: false, why: 'no pictures of the page were taken' };
   const offset = (done.began - began) / 1000;
-  const said = lines.filter((l) => l.n > done.from && l.who !== 'note').map((l) => ({ ...l, t: Math.max(0, l.t - offset - (l.seconds ?? 0) * 0) }));
+  const said = lines.filter((l) => l.n > done.from && l.who !== 'note').map((l) => ({ ...l, t: Math.max(0, l.t - offset) }));
   // each picture is held until the next one
   const list = done.frames.map((f, i) => `file '${f.file}'\nduration ${(((done.frames[i + 1]?.t ?? length) - f.t) || 0.4).toFixed(3)}`).join('\n');
   writeFileSync(join(done.folder, 'frames.txt'), `${list}\nfile '${done.frames.at(-1).file}'\n`);
@@ -477,7 +477,7 @@ async function jump(at) {
     let land = at;
     for (let n = from; n < at && mine(); n++) {
       const live = walk.steps[n].live ?? {};
-      const did = live.show ? await toBridge('show', { live: { show: live.show }, app: walk.app }) : { ok: true };
+      const did = live.show ? await toBridge('show', { live: { show: live.show }, app: walk.app, quick: true }) : { ok: true };
       if (!mine()) return;
       const past = did?.ok && live.turn ? Boolean((await toBridge('turn', { live: { turn: live.turn }, app: walk.app, peek: true }))?.reached) : true;
       if (!did?.ok || !past) {
@@ -841,7 +841,7 @@ async function rehearse(name) {
     const live = step.live ?? {};
     if (live.show?.some((action) => 'go' in action)) broken = 0;
     if (live.show) {
-      const did = await toBridge('show', { live: { show: live.show }, app: made.app });
+      const did = await toBridge('show', { live: { show: live.show }, app: made.app, quick: true });
       row.did = did?.done ?? [];
       if (!did?.ok) {
         row.result = did?.refused ? 'stopped' : 'failed';

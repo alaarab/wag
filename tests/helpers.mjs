@@ -59,6 +59,8 @@ export function serve(root, host = '127.0.0.1') {
       res.writeHead(204);
       return res.end();
     }
+    // an answer that takes its time, for a page whose part arrives late
+    if (path === '/slow') return void setTimeout(() => res.end('late'), 1700);
     const file = join(root, normalize(path === '/' ? '/index.html' : path));
     if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
       res.writeHead(404);

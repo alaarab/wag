@@ -216,11 +216,13 @@ async function wire(target) {
   if (wired.has(target)) return;
   wired.add(target);
   target.on('request', (request) => {
+    if (target === page) inFlight.add(request);
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return;
     sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
     // what a content-rule report was about is kept in the log: it shows whether the guide's own marks set it off
     if (isBrowserReport(request)) record({ browserReport: new URL(request.url()).pathname, about: reportAbout(request.postData()) });
   });
+  for (const over of ['requestfinished', 'requestfailed']) target.on(over, (request) => inFlight.delete(request));
   // what the viewer does with their own mouse, so a guide can carry on from where they went
   await target.addInitScript(watchInPage);
   await target.evaluate(watchInPage).catch(() => {});
@@ -516,6 +518,22 @@ async function listWith(choice) {
 /** downloads kept this session, by the name the deck gave them */
 const kept = new Map();
 
+/** A pause that is only there so a person can see what is about to be pressed. */
+let unwatched = false;
+const watched = (ms) => (unwatched ? undefined : page.waitForTimeout(ms));
+
+/** requests a tab has sent that have not come back yet */
+const inFlight = new Set();
+/** Wait for the page to go quiet: nothing in flight for a quarter of a second. Gives up after `ms`. */
+async function quiet(ms) {
+  const end = Date.now() + ms;
+  for (let since = null; Date.now() < end; await page.waitForTimeout(50)) {
+    if (inFlight.size) since = null;
+    else if (Date.now() - (since ??= Date.now()) >= 250) return true;
+  }
+  return false;
+}
+
 async function act(action, base) {
   if ('go' in action) {
     const to = /^https?:/.test(action.go) ? action.go : `${appOverride ?? base ?? ''}${action.go}`;
@@ -540,7 +558,7 @@ async function act(action, base) {
     }
     const found = await ring(action.click);
     await guard(found);
-    await page.waitForTimeout(700);
+    await watched(700);
     await clear();
     if ((await found.evaluate((el) => el.tagName)) === 'OPTION') {
       // a choice in a list is picked, not clicked: a click on it does nothing in most browsers
@@ -557,7 +575,7 @@ async function act(action, base) {
     mayActHere('choose');
     const found = await ring(action.from);
     await guard(found);
-    await page.waitForTimeout(500);
+    await watched(500);
     await clear();
     // picking only changes what is shown: a list that sends anything but a read when it is picked from is stopped, as a click is
     await lookOnly(async () => {
@@ -574,7 +592,7 @@ async function act(action, base) {
     const box = await found.evaluate((el) => ({ tag: el.tagName, type: (el.getAttribute('type') ?? 'text').toLowerCase(), editable: el.isContentEditable, shut: Boolean(el.disabled || el.readOnly) }));
     const text = box.tag === 'TEXTAREA' || box.editable || (box.tag === 'INPUT' && ['text', 'search', 'number', 'tel'].includes(box.type));
     if (!text || box.shut) throw new Refused(`${words(action.into)} is not a text box the guide may type in. That one is yours.`);
-    await page.waitForTimeout(500);
+    await watched(500);
     await clear();
     // typing only fills the box; a page that saves as you type is stopped like any other send
     await lookOnly(() => found.fill(action.fill));
@@ -582,8 +600,13 @@ async function act(action, base) {
     return `Filled ${words(action.into)}${lines > 1 ? ` (${lines} lines)` : ` with ${action.fill}`}`;
   }
   if ('if' in action) {
-    // a short wait, so a part that is still arriving counts as there
-    const there = await until(action.if, 2500);
+    // There at once, or decided as soon as the page has gone quiet: a part that is still arriving
+    // counts as there, and a part that is not coming does not cost a wait.
+    let there = await holds(action.if);
+    if (!there) {
+      await quiet(2500);
+      there = await holds(action.if);
+    }
     const done = [];
     for (const next of there ? action.then : (action.else ?? [])) done.push(...[].concat(await act(next, base)));
     return done;
@@ -592,7 +615,7 @@ async function act(action, base) {
     if (liveSession) throw new Refused('In a live session a download is your own click, so the file lands in your Downloads. The guide rings the button and waits.');
     const found = await ring(action.download);
     await guard(found);
-    await page.waitForTimeout(700);
+    await watched(700);
     await clear();
     wanted = { as: action.as, dir: filesDir };
     try {
@@ -1253,16 +1276,20 @@ const routes = {
     const up = await fetch(`${cdp}/json/version`, { signal: AbortSignal.timeout(2500) }).then((r) => r.ok, () => false);
     return { ok: true, browser: up, app: appOverride ?? null };
   },
-  show: ({ live, app }) =>
+  show: ({ live, app, quick }) =>
     inTurn(async () => {
       await tab();
       sent = [];
       const done = [];
+      // quick: nobody is watching (a rehearsal, or the steps redone before a jump), so nothing is paused on for show
+      unwatched = Boolean(quick);
       try {
         for (const action of live.show ?? []) done.push(...[].concat(await act(action, app)));
         return { ok: true, done, sent };
       } catch (error) {
         return { ok: false, done, refused: error instanceof Refused, why: error.message.split('\n')[0], sent };
+      } finally {
+        unwatched = false;
       }
     }),
   turn: ({ live, app, again, peek }) =>
