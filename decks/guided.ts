@@ -50,7 +50,7 @@ const item = step('item', 'Open item 1', 'Biscuits bought on the tea budget: 412
 const entry = step('entry', 'Download the correcting entry', 'The entry is a workbook. It is prepared on the page, not posted.', ['Show me downloads it', 'Check adds up the workbook: debits equal credits, and the debits equal the amount on the page'], {
   narration: 'Download the correcting entry, then press Check. Check adds up the workbook and compares it with the page.',
   live: {
-    show: [{ download: { role: 'button', name: 'Correcting entry', within: 'dialog' }, as: 'snack-entry' }],
+    show: [{ download: { role: 'button', name: 'Download the entry', within: 'dialog' }, as: 'snack-entry' }],
     check: [
       { label: 'Debits equal credits', read: { file: 'snack-entry', sheet: 'Lines', column: 'DR' }, equals: { file: 'snack-entry', sheet: 'Lines', column: 'CR' } },
       { label: 'The Check sheet says it balances', read: { file: 'snack-entry', sheet: 'Check', column: 'Balances', take: 'all' }, equals: { value: 'Yes' } },

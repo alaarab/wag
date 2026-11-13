@@ -249,11 +249,14 @@ export type Reading =
       column?: string;
       where?: Record<string, string>;
       /**
-       * sum (the default), all (the distinct values), first, count (how many rows), or moved: for a correcting entry
-       * whose lines come in pairs with the account being moved off first, credits less debits on
-       * the first line of each pair, which is what the entry takes off that account
+       * sum (the default), all (the distinct values), first, count (how many rows), or moved: for an
+       * entry whose lines come in pairs, with the line that takes an amount off first. It gives
+       * credits less debits on the first line of each pair, which is what the entry moves.
        */
       take?: 'sum' | 'all' | 'first' | 'moved' | 'count';
+      /** for `take: 'moved'`: the headings of the debit and credit columns, when they are not DR and CR */
+      debit?: string;
+      credit?: string;
     }
   | { value: number | string }
   /** figures added together; `minus` ones are taken away */
@@ -293,7 +296,7 @@ export interface Live {
 }
 
 /** Words on a control that mean pressing it changes something. "Show me" refuses such a control. */
-export const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|close the period|reopen)\b/i;
+export const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|reopen)\b/i;
 
 const labelOf = (target: Target) => (typeof target === 'string' ? target : (target.name ?? target.text ?? ''));
 

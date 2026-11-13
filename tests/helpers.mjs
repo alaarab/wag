@@ -64,7 +64,9 @@ export function serve(root, host = '127.0.0.1') {
       res.writeHead(404);
       return res.end();
     }
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'text/html' });
+    // a page may come with headers of its own, kept beside it
+    const own = existsSync(`${file}.headers.json`) ? JSON.parse(readFileSync(`${file}.headers.json`, 'utf8')) : {};
+    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'text/html', ...own });
     createReadStream(file).pipe(res);
   });
   listening.push(server);

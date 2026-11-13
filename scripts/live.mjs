@@ -17,9 +17,11 @@
 // Options: --port N, --serve DIR (a built deck; leave out when `npm run dev` serves the page),
 // --cdp URL, --app URL (send the deck's `go` addresses somewhere else, for a rehearsal),
 // --files DIR (where downloads are kept and checks look for workbooks), --no-open (never start
-// another program to open a file), --looks "words,words" (what else a dialog button of your app may
-// say for the guide to press it, because it only looks), --files-on "words,words" (what else a
-// button of your app says when it hands over a file: in a live session those are never pressed).
+// another program to open a file), --reads "/path,/path" (addresses your app reads from with a POST),
+// and your app's own words, each as "words,words": --changes (what else a control says when it
+// changes something: never pressed), --looks (what else a dialog button says when it only looks),
+// --files-on (what else a button says when it hands over a file: in a live session never pressed).
+// A session pack (see bin/wag.mjs) carries all of these for an app, so they need not be typed.
 // It needs only Node and Playwright, so it can be copied next to any Playwright install.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -65,17 +67,24 @@ writeFileSync(tokenFile, token, { mode: 0o600 });
 const logFile = resolve(option('log', join(filesDir, 'bridge.log')));
 const record = (entry) => appendFileSync(logFile, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 
-// Keep in step with COMMITS in src/scene.ts.
-const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|close the period|reopen)\b/i;
+// What a control says when it changes something. Keep in step with COMMITS in src/scene.ts.
+const COMMITS = /^(save|post|approve|submit|delete|send|remove|reject|confirm|apply|run|import|sync|void|reverse|pay|create|update|mark|undo|reopen)\b/i;
 
-// What a button in a dialog may say for the guide to press it: it only shows, hides, reads again or downloads.
-const LOOKS = /^(close|x|×|cancel|back|next|previous|show|hide|expand|collapse|how to fix|how it is measured|refresh|open|view|details?|more|less|sort|filter|full detail|download|correcting entry|split by source)\b/i;
+// What a button in a dialog may say for the guide to press it: it only shows, hides, reads again or
+// downloads. The short words are trusted only alone: "Close" shuts a dialog, "Close the books" does not.
+const LOOKS = /^(show|hide|expand|collapse|refresh|open|view|details?|more|less|sort|filter|download)\b/i;
+const LOOKS_ALONE = /^(close( (the )?(dialog|window|panel|menu))?|x|\u00d7|cancel|back|next|previous)$/i;
 
-// What a control says when pressing it hands over a file. In a live session those are the viewer's own click.
-// --files-on adds an app's own words for such a button, and --looks its words for a dialog button that only looks.
+// An app's own words, given when the bridge starts (a session pack carries them): --changes for a
+// control that changes something, --looks for a dialog button that only looks, and --files-on for a
+// button that hands over a file, which in a live session is the viewer's own click.
 const listed = (list) => (list || '').split(',').map((word) => word.trim().toLowerCase()).filter(Boolean);
 const filesOn = listed(option('files-on'));
 const looksToo = listed(option('looks'));
+const changesToo = listed(option('changes'));
+const starts = (label, words) => words.some((word) => label.toLowerCase().startsWith(word));
+const changes = (label) => COMMITS.test(label) || starts(label, changesToo);
+const onlyLooks = (label) => LOOKS.test(label) || LOOKS_ALONE.test(label.trim()) || starts(label, looksToo);
 const DOWNLOADS = /\b(download|export|excel|xlsx|csv|pdf)\b/i;
 const handsOver = (label) => DOWNLOADS.test(label) || filesOn.some((word) => label.toLowerCase().includes(word));
 
@@ -207,7 +216,10 @@ async function wire(target) {
   if (wired.has(target)) return;
   wired.add(target);
   target.on('request', (request) => {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return;
+    sent.push(`${request.method()} ${new URL(request.url()).pathname}`);
+    // what a content-rule report was about is kept in the log: it shows whether the guide's own marks set it off
+    if (isBrowserReport(request)) record({ browserReport: new URL(request.url()).pathname, about: reportAbout(request.postData()) });
   });
   // what the viewer does with their own mouse, so a guide can carry on from where they went
   await target.addInitScript(watchInPage);
@@ -307,6 +319,20 @@ async function lookOnly(work) {
   }
 }
 
+const isBrowserReport = (request) => request.resourceType() === 'cspviolationreport' || /^application\/(csp-report|reports\+json)/.test(request.headers()['content-type'] ?? '');
+
+/** The gist of a content-rule report: which rule, what was blocked, and where from. */
+function reportAbout(body) {
+  try {
+    const said = JSON.parse(body ?? '{}');
+    const report = said['csp-report'] ?? (Array.isArray(said) ? said[0]?.body : said.body) ?? {};
+    const pick = (...names) => names.map((name) => report[name]).find((value) => value !== undefined);
+    return { rule: pick('effective-directive', 'effectiveDirective', 'violated-directive'), blocked: pick('blocked-uri', 'blockedURL'), from: pick('source-file', 'sourceFile'), line: pick('line-number', 'lineNumber'), sample: String(pick('script-sample', 'sample') ?? '').slice(0, 80) || undefined };
+  } catch {
+    return {};
+  }
+}
+
 /** Do it, and on a page that is not on this machine let nothing but reads out while it happens. */
 async function sendingOnlyReads(work) {
   if (isLocal(page.url())) {
@@ -323,6 +349,9 @@ async function sendingOnlyReads(work) {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method()) || readsWithPost.some((prefix) => path.startsWith(prefix))) return route.continue();
+    // Two things a browser sends by itself are not the press sending anything, and go through: its
+    // report that a page broke its own content rules, and the renewal of a sign-in that is running out.
+    if (isBrowserReport(request) || /(^|&)grant_type=refresh_token(&|$)/.test(request.postData() ?? '')) return route.continue();
     stopped.push(`${request.method()} ${path}`);
     return route.abort();
   };
@@ -370,14 +399,14 @@ async function guard(found) {
       opens: pressed.hasAttribute('aria-expanded') || ['tab', 'combobox', 'option'].includes(pressed.getAttribute('role') ?? ''),
     };
   });
-  if (control.submits || COMMITS.test(control.label)) {
+  if (control.submits || changes(control.label)) {
     throw new Refused(`"${control.label}" changes something, so the guide will not press it. That click is yours.`);
   }
   if (liveSession && control.button && handsOver(control.label)) {
     throw new Refused(`"${control.label}" hands over a file, and in a live session a download is your own click. The guide can ring it and wait for you.`);
   }
   // inside a dialog, a button has to be one the guide knows only looks. Anything else is not pressed, and the reason is given.
-  if (control.inDialog && control.button && !control.opens && !LOOKS.test(control.label) && !looksToo.some((word) => control.label.toLowerCase().startsWith(word))) {
+  if (control.inDialog && control.button && !control.opens && !onlyLooks(control.label)) {
     throw new Refused(`The guide cannot tell what "${control.label || 'that button'}" does, so it will not press it. That click is yours.`);
   }
 }
@@ -964,7 +993,7 @@ async function read(reading, onlySheet) {
     let cents = 0;
     for (const sheet of sheets) {
       sheet.rows.forEach((row, i) => {
-        if (i % 2 === 0 && keep(row)) cents += Math.round(((Number(row.CR) || 0) - (Number(row.DR) || 0)) * 100);
+        if (i % 2 === 0 && keep(row)) cents += Math.round(((Number(row[reading.credit ?? 'CR']) || 0) - (Number(row[reading.debit ?? 'DR']) || 0)) * 100);
       });
     }
     return cents / 100;

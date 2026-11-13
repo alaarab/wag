@@ -11,7 +11,7 @@ case "$asked" in
   *"start the walk"*) g walk start guided; g say "Starting the walkthrough." ;;
   *"show marzember"*) g goto "/app.html?month=marzember"; g say "This is Marzember." --point "Biscuits bought on the tea budget" --note "The first item" ;;
   *"post it"*) g click "Post entry"; g say "Posting is your own click." ;;
-  *"download it"*) g click "Correcting entry"; g say "A download is your own click." ;;
+  *"download it"*) g click "Download the entry"; g say "A download is your own click." ;;
   *"last year"*) g open "What the snack budget was last year" --why "the page only shows two months"; g say "The page does not show last year." ;;
   *"the refund"*) g close; g click "Tea refund on the old shelf code"; g say "The tea refund is minus 38.00." --point "css=#headline" ;;
   *) g say "This is the amount the entry has to move." --point "css=#headline" ;;

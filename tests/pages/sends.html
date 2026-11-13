@@ -10,6 +10,8 @@
   <input id="note" aria-label="Note" placeholder="Note">
   <input id="agree" type="checkbox" aria-label="Agree">
   <select id="colour" aria-label="Colour"><option>Red</option><option>Green</option></select>
+  <!-- nothing in its name says so, but pressing it hands over a file -->
+  <button id="sheet">Show the sheet</button>
   <p id="state">nothing sent</p>
 </main>
 <script>
@@ -18,6 +20,12 @@
   document.getElementById('more').onclick = () => send('/save', 'details');
   document.getElementById('note').oninput = (event) => send('/autosave', event.target.value);
   document.getElementById('colour').onchange = (event) => send('/prefer', event.target.value);
+  document.getElementById('sheet').onclick = () => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob(['a,b\n1,2\n'], { type: 'text/csv' }));
+    link.download = 'sheet.csv';
+    link.click();
+  };
 </script>
 </body>
 </html>

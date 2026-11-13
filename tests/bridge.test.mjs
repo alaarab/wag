@@ -99,17 +99,35 @@ describe('the bridge in a session the viewer started', { skip }, () => {
     assert.match((await bar(await guideTab(there.context))).text, /Here\./);
   });
 
-  test('leaves every download to the viewer', async () => {
+  test('leaves a download to the viewer: a button that says it is one is not pressed', async () => {
     await b.cmd('click', { target: { text: 'Biscuits bought on the tea budget' } });
-    // nothing in this button's name says it hands over a file: what it does when pressed is what counts
-    const asked = await b.cmd('click', { target: { role: 'button', name: 'Correcting entry', within: 'dialog' } });
+    const asked = await b.cmd('click', { target: { role: 'button', name: 'Download the entry', within: 'dialog' } });
     assert.equal(asked.refused, true);
-    assert.match(asked.why, /download is your own click/);
+    assert.match(asked.why, /hands over a file/);
+    const step = await b.show({ download: { role: 'button', name: 'Download the entry', within: 'dialog' }, as: 'entry' });
+    assert.equal(step.refused, true);
+  });
+
+  test('stops a download that a press sets off, though nothing in the button\'s name says so', async () => {
+    const pages = await serve(join(repo, 'tests/pages'));
+    await b.cmd('goto', { to: `${pages.origin}/sends.html` });
+    const pressed = await b.cmd('click', { target: { role: 'button', name: 'Show the sheet' } });
+    assert.equal(pressed.refused, true);
+    assert.match(pressed.why, /started a download \(sheet\.csv\)/);
     await sleep(800);
     // the folder downloads go to holds the bridge's own log and key, and no file from the page
     assert.deepEqual(readdirSync(b.files).filter((name) => !/\.(log|token)$/.test(name)), []);
-    const step = await b.show({ download: { role: 'button', name: 'Correcting entry', within: 'dialog' }, as: 'entry' });
-    assert.equal(step.refused, true);
+  });
+
+  test('presses a dialog button only when its name says it just looks: "Close" alone, not "Close" and more', async () => {
+    await b.cmd('goto', { to: `${site.origin}/guide/app.html?month=marzember` });
+    await b.cmd('click', { target: { text: 'Biscuits bought on the tea budget' } });
+    await (await guideTab(there.context)).evaluate(() => (document.getElementById('close').textContent = 'Close the books'));
+    const more = await b.cmd('click', { target: { role: 'button', name: 'Close the books', within: 'dialog' } });
+    assert.equal(more.refused, true);
+    assert.match(more.why, /cannot tell what "Close the books" does/);
+    await (await guideTab(there.context)).evaluate(() => (document.getElementById('close').textContent = 'Close'));
+    assert.equal((await b.cmd('click', { target: { role: 'button', name: 'Close', within: 'dialog' } })).ok, true);
   });
 });
 
@@ -145,6 +163,16 @@ describe('the bridge on a page that is not on this machine', { skip }, () => {
     const picked = await b.cmd('choose', { option: 'Green', from: { role: 'combobox', name: 'Colour' } });
     assert.equal(picked.refused, true);
     assert.deepEqual(site.sent, []);
+  });
+
+  test('lets the browser\'s own report of a broken content rule through: that is not the press sending anything', async () => {
+    await b.cmd('goto', { to: '/rules.html' });
+    const before = site.sent.length;
+    const pressed = await b.cmd('click', { target: { role: 'button', name: 'Show more' } });
+    assert.equal(pressed.ok, true);
+    // the report reached the page's server, and it was about the page's own style, not about the guide's marks
+    assert.deepEqual(site.sent.slice(before), ['POST /rule-report']);
+    await b.cmd('goto', { to: '/sends.html' });
   });
 
   test('does not type in a box that is not for text', async () => {

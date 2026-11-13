@@ -8,7 +8,7 @@
 //   guide click "Biscuits bought on the tea budget"    (look-only: the bridge refuses anything that changes something)
 //   guide choose "Marzember" --from "role=combobox:Month"
 //   guide scroll "Tea refund"   |   guide close   |   guide clear   |   guide screenshot name
-//   guide turn "Correcting entry" --says "It downloads a workbook; nothing is saved" --file "correcting-entry*" --as entry
+//   guide turn "Download the entry" --says "It downloads a workbook; nothing is saved" --file "correcting-entry*" --as entry
 //   guide check '<json list of checks>'
 //   guide record start   |   guide record stop      (a video, subtitles and a written walkthrough of the session)
 //   guide record stop --gif [--width 960]           (GIFs as well: the whole recording, and one for each step of a walk)

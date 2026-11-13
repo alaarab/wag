@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>A page with content rules</title></head>
+<body>
+<main>
+  <h1>A page with content rules</h1>
+  <!-- pressing it breaks the page's own style rule, and the browser reports that to the page's server -->
+  <button id="more">Show more</button>
+  <p id="state">nothing shown</p>
+</main>
+<script>
+  document.getElementById('more').onclick = () => {
+    const style = document.createElement('style');
+    style.textContent = 'p { color: red }';
+    document.head.append(style);
+    document.getElementById('state').textContent = 'shown';
+  };
+</script>
+</body>
+</html>
