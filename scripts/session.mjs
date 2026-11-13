@@ -189,7 +189,8 @@ fetch('/lines?key=' + key).then((r) => r.json()).then((old) => { old.forEach((l)
 
 // ---- recording ----------------------------------------------------------------------------------
 // "Record this": pictures of the driven tab a few times a second, plus the lines already kept with
-// their audio and times. Stopping turns them into a video, subtitles and a written walkthrough.
+// their audio and times. Stopping turns them into a video, subtitles and a written walkthrough, and,
+// when asked (guide record stop --gif), GIFs: the whole recording and one for each step of a walk.
 
 const run = promisify(execFile);
 let recording = null;
@@ -216,7 +217,7 @@ function startRecording() {
 
 const clock = (t) => `${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')},${String(Math.round((t % 1) * 1000)).padStart(3, '0')}`;
 
-async function stopRecording() {
+async function stopRecording({ gif = false, width = 960 } = {}) {
   if (!recording) return { ok: false, why: 'nothing is being recorded' };
   const done = recording;
   clearInterval(done.timer);
@@ -251,8 +252,27 @@ async function stopRecording() {
   });
   writeFileSync(join(done.folder, 'walkthrough.md'), out.join('\n'));
   writeFileSync(join(done.folder, 'steps.json'), JSON.stringify(said, null, 1));
-  add({ who: 'note', text: `Recording saved: ${video}` });
-  return { ok: true, video, seconds: Math.round(length), walkthrough: join(done.folder, 'walkthrough.md'), subtitles: join(done.folder, 'session.srt'), private: Boolean(label) };
+  // GIFs, when asked for: the whole recording, and one for each step of a walk played in it. A GIF has
+  // no sound, so what was said is the bar on the page. They are cut from the video, with its label.
+  const gifs = [];
+  if (gif) {
+    const wide = Math.min(1600, Math.max(320, Math.round(Number(width) || 960)));
+    const cut = async (from, seconds, file) => {
+      await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', from.toFixed(2), '-t', seconds.toFixed(2), '-i', video, '-filter_complex', `fps=8,scale=${wide}:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`, file]);
+      gifs.push({ file, seconds: Math.round(seconds), megabytes: Math.round(statSync(file).size / 104857.6) / 10 });
+    };
+    await cut(0, length, join(done.folder, 'session.gif'));
+    const steps = lines.filter((l) => l.n > done.from && l.who === 'note' && /^Step \d+ of \d+: /.test(l.text)).map((l) => ({ t: Math.max(0, l.t - offset), n: Number(/^Step (\d+)/.exec(l.text)[1]), title: l.text.replace(/^Step \d+ of \d+: /, '') }));
+    if (steps.length) mkdirSync(join(done.folder, 'steps'), { recursive: true });
+    for (const [i, step] of steps.entries()) {
+      const until = steps[i + 1]?.t ?? length;
+      const name = step.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+      // a step that was only passed through is not worth a picture; one walked twice keeps both
+      if (until - step.t >= 1.5) await cut(step.t, until - step.t, join(done.folder, 'steps', `${String(i + 1).padStart(2, '0')}-step-${step.n}-${name}.gif`));
+    }
+  }
+  add({ who: 'note', text: `Recording saved: ${video}${gifs.length ? `, and ${gifs.length} GIF${gifs.length > 1 ? 's' : ''}` : ''}` });
+  return { ok: true, video, seconds: Math.round(length), walkthrough: join(done.folder, 'walkthrough.md'), subtitles: join(done.folder, 'session.srt'), gifs: gif ? gifs : undefined, private: Boolean(label) };
 }
 
 /** Show a line and speak it: it is heard as soon as its audio exists, which for a warm voice is a fraction of a second. */
@@ -947,7 +967,10 @@ const server = http.createServer(async (req, res) => {
       const { text, why } = JSON.parse(body || '{}');
       return json(keep(text ? `Asked: ${text}` : question ? `Asked: "${question}"` : 'A question', `Open: ${why || 'the pages do not show the answer'}`));
     }
-    if (url.pathname === '/record') return json(JSON.parse(body || '{}').on ? startRecording() : await stopRecording().catch((error) => ({ ok: false, why: error.message.split('\n')[0] })));
+    if (url.pathname === '/record') {
+      const asked = JSON.parse(body || '{}');
+      return json(asked.on ? startRecording() : await stopRecording(asked).catch((error) => ({ ok: false, why: error.message.split('\n')[0] })));
+    }
     const { text, where } = JSON.parse(body || '{}');
     if (url.pathname === '/heard') return json({ ok: true, n: add({ who: 'you', text }).n });
     if (url.pathname === '/say') {

@@ -11,6 +11,7 @@
 //   guide turn "Correcting entry" --says "It downloads a workbook; nothing is saved" --file "correcting-entry*" --as entry
 //   guide check '<json list of checks>'
 //   guide record start   |   guide record stop      (a video, subtitles and a written walkthrough of the session)
+//   guide record stop --gif [--width 960]           (GIFs as well: the whole recording, and one for each step of a walk)
 //   guide say "One or two sentences."      (shown as text and spoken)      guide heard "what the person asked"
 //   guide say "It is this figure." --point "412.50" --note "The amount"       (rings that part of the page, then says it: one command)
 //   guide open "what was asked, in your words" --why "the pages do not show it"     (kept in the session's list for later)
@@ -64,7 +65,7 @@ let answer;
 if (cmd === 'record') {
   // record start | record stop: the page, the voice and the words, made into a video and a written walkthrough
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
-  answer = await fetch(`${session}/record`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ on: words[0] !== 'stop' }) }).then((r) => r.json(), () => ({ ok: false, why: 'the session console is not running' }));
+  answer = await fetch(`${session}/record`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ on: words[0] !== 'stop', gif: Boolean(flags.gif), width: flags.width ? Number(flags.width) : undefined }) }).then((r) => r.json(), () => ({ ok: false, why: 'the session console is not running' }));
 } else if (cmd === 'open' || cmd === 'walk') {
   // open: something for the person to follow up later. walk: step a deck's walk on the page.
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';

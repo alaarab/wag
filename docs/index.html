@@ -503,7 +503,7 @@ guide say "This is the amount the entry has to move."</code></pre>
     <tr><td><code>turn</code></td><td>My turn: ring a control, say what it does, wait for the viewer (or their download)</td></tr>
     <tr><td><code>check</code></td><td>Run checks, in the same format as a deck</td></tr>
     <tr><td><code>say</code>, <code>heard</code></td><td>Speak a line and show it; note what the person asked</td></tr>
-    <tr><td><code>screenshot</code>, <code>record</code></td><td>A picture of the tab; start or stop a recording (video, subtitles and a written walkthrough)</td></tr>
+    <tr><td><code>screenshot</code>, <code>record</code></td><td>A picture of the tab; start or stop a recording (video, subtitles and a written walkthrough). <code>guide record stop --gif</code> also makes GIFs: the whole recording, and one for each step of a walk played in it</td></tr>
   </table>
   <p>Any assistant that can run a shell command can be the guide. Allow it to run <code>guide</code> and nothing else, and give it a short map of the page.</p>
   <p>In a live session the guide never takes over a tab you had open on something else. It works in the tab in front only when that tab is already on the page a step goes to; otherwise it opens a tab of its own. It never presses a button that hands over a file, whoever asks.</p>
@@ -534,6 +534,11 @@ guide walk goto 4 # or words from a step's title; guide walk list shows the walk
   <p>Start the session with <code>--bar &lt;address&gt;</code> and the bar is up from the start, on that page, with no walk playing. It is for a meeting where the questions are not known beforehand. <kbd>F2</kbd> asks; the guide goes to the page that answers, rings what it means, and the page stays there. Nothing is paused and there is nothing to continue. Ask for a walk in words, or pick it from <strong>Walks</strong>; <strong>End this walk</strong> in the Steps list comes back to the bar with nothing playing. Add <code>--walk</code> as well to begin with a walk.</p>
   <pre><code class="sh">node scripts/session.mjs --deck dist --bar /app.html --ask scripts/ask.sh \
   --bridge "node scripts/live.mjs --stdio --live --app http://127.0.0.1:5173/guide"</code></pre>
+  <h4>A walk as GIFs</h4>
+  <p>Record while a walk plays and stop with <code>--gif</code>. Next to the video you get <code>session.gif</code> and, under <code>steps/</code>, one GIF for each step: the page moving, what was rung, and the step's words in the bar, so it reads with no sound. They are small enough to paste into a document or a message (a 50 second walk of the made-up deck is half a megabyte). <code>--width</code> sets how wide they are; 960 unless you say.</p>
+  <pre><code class="sh">guide record start
+guide walk start my-deck      # step through it, or turn Auto on
+guide record stop --gif --width 900</code></pre>
   <h4>Rehearse before you show it</h4>
   <p><code>--rehearse &lt;deck&gt;</code> plays every step of a walk with nobody watching: no voice, no bar, no waiting. Each Show me is done and each Check is read. A step's own click is never pressed: the rehearsal looks whether its button is there and leaves that step's check unread. It prints one line a step, writes the detail to <code>rehearsal.md</code> in the session folder, and ends with 1 if a step did not work. <code>rehearsal.json</code> is the same for a program: one record a step, with its <code>state</code> (<code>works</code>, <code>words only</code>, <code>your click</code>, <code>failed</code>, <code>stopped</code>, <code>check differs</code>) and, when it did not work, the <code>reason</code>.</p>
   <pre><code>  1. words only        0 s  A deck that drives the page
