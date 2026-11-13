@@ -1,16 +1,34 @@
+<p align="center"><img src="docs/img/hero.webp" alt="The demo deck playing: the wag name with its tail, three floating charts, figures counting up, code typing itself beside the box it makes, and a diagram with pulses running along its lines" width="880"></p>
+
 # wag
 
 **Slide decks written in code. They move, they talk, and they can walk someone through a real web page.**
 
 A deck is one TypeScript file. The player animates it with [Motion](https://motion.dev) springs and reads it aloud in a voice that runs on your own machine. In guided mode it points at a live page in a browser you are already signed in to, and it never presses anything that saves.
 
-<p align="center"><img src="docs/img/callouts.gif" alt="A screenshot slide stepping through its numbered callouts, with the player bar and timeline underneath" width="820"></p>
+<table><tr>
+<td width="33%"><img src="docs/img/numbers.webp" alt="A slide of figures: three counters, a bar chart with one bar picked out, a line chart and a ring at 72 percent"></td>
+<td width="33%"><img src="docs/img/code.webp" alt="A window of code on the left and the box that code makes on the right, tilted because the pointer is over it"></td>
+<td width="33%"><img src="docs/img/dog.webp" alt="A dog's face built from rounded shapes, eyes shut and tongue out, with a speech bubble saying Woof"></td>
+</tr><tr>
+<td align="center"><b>Motion pieces</b><br>Figures that count up, bars that grow, a line that draws itself</td>
+<td align="center"><b>Written in code</b><br>The code types itself. The box beside it is what it makes</td>
+<td align="center"><b>States</b><br>A dog made of boxes, ellipses and a path. Hover it</td>
+</tr><tr>
+<td><img src="docs/img/film.webp" alt="A slide that opens like a film: the words Slides that move like film in large type beside three fanned cards"></td>
+<td><img src="docs/img/cards.webp" alt="Three tall cards in violet, rose and blue, named Springs, States and Fallback"></td>
+<td><img src="docs/img/walk-start.webp" alt="The opening slide of a narrated deck, A deck that walks you through, with the player bar and its timeline underneath"></td>
+</tr><tr>
+<td align="center"><b>Scenes</b><br>A whole slide as one piece of Motion code</td>
+<td align="center"><b>Click</b><br>Each card opens to fill the slide, and closes again</td>
+<td align="center"><b>Walkthroughs</b><br>A deck that talks, with a timeline to jump around in</td>
+</tr></table>
 
 **[Read the docs page](docs/index.html)** (open it from a clone, or at `http://localhost:5179/docs/` while `npm run dev` is running).
 
 | | |
 |---|---|
-| **Slides that move** | Elements spring between states on hover, click and drag. Builds, drawn strokes, morphing transitions, routes between slides, answers saved to Excel, and an export to PowerPoint. |
+| **Slides that move** | Elements spring between states on hover, click and drag. Type that arrives word by word, charts that draw themselves, builds, morphing transitions, answers saved to Excel, and an export to PowerPoint. |
 | **Decks that talk** | Narration line by line in an offline voice, a timeline to jump around in, story slides for cause, effect and fix, screenshots with zooming callouts, and Word handouts. |
 | **Guides that drive a page** | **Show me** does a step on the live page. **My turn** rings what to click and waits for you. **Check** reads the page or a downloaded workbook and says whether the figures agree. |
 
@@ -68,9 +86,65 @@ The canvas is 1280 by 720. A slide is a small state machine: a state is a set of
 | A whole guide as steps | `guide(options, [{ title, say, show, mine, download, check }])` |
 | Picking one out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside an element |
 
+## Type and themes
+
+Four typefaces ship as files in the bundle, so a deck looks the same on any machine and in a recording, and nothing is fetched from a font service: Bricolage Grotesque for headlines, Geist for text, Instrument Serif for marked words, Geist Mono for labels and code (all under the Open Font License; `FONTS` names them). A theme is the look in one object: colours, typefaces and the light behind a slide. `dark` and `light` ship.
+
+```ts
+import { aurora, dark, deck, look, slide, text } from 'wag';
+
+const t = dark;
+
+const title = slide({}, [
+  aurora({ theme: t, strength: 1 }),       // light drifting behind the slide
+  text('Slides that *move*', {             // words between asterisks are set in the accent face
+    x: 80, y: 260, w: 1120, h: 120,
+    font: t.display, fontSize: 104, weight: 800,
+    tracking: -0.04, leading: 1,           // letter spacing in ems, line height
+    reveal: 'words',                       // each word rises out of its own line
+  }),
+]);
+
+export default deck({ ...look(t) }, [title]);
+```
+
+| To | Write |
+|---|---|
+| Set type | `font`, `weight`, `italic`, `caps`, `tracking: -0.03`, `leading: 1.1` |
+| Mark a word | `'Slides that *move*'`; the deck's `accent` says how marked words look |
+| Bring text in | `reveal: 'words'` or `'letters'` |
+| A gradient | `gradient: 'linear-gradient(…)'` on a box, an ellipse or text |
+| Depth and glass | `shadow: '0 30px 60px -28px rgba(0,0,0,.7)'`, `glass: 16` |
+| Decoration | `decor: true` never takes the pointer, and an export leaves it out |
+
+## Motion pieces
+
+Ready-made things that move. Each is one call, sits in a slide the way a box does, plays from the start whenever its slide appears, and takes its colours and type from the theme.
+
+<table><tr>
+<td width="50%"><img src="docs/img/title.webp" alt="The demo deck's title slide: the word wag over a gradient tail, with three small cards holding a line chart, a bar chart and a counter"></td>
+<td width="50%"><img src="docs/img/ways.webp" alt="A diagram: one deck file on the left joined by curved lines to six boxes naming the ways it can be played"></td>
+</tr></table>
+
+| Piece | What it does |
+|---|---|
+| `aurora()` | Light drifting behind a slide: three glows, a faint grid, a little grain |
+| `wordmark()` | The wag name, with a tail that wags |
+| `stat(1284, { label, delta })` | A figure that counts up |
+| `bars([{ label, value }], { mark })` | A bar chart that grows, one bar picked out |
+| `trend([…], { labels, end })` | A line chart that draws itself |
+| `ring(0.72, { label })` | A ring that fills while its percentage counts |
+| `code(source, { file })` | A window of code that types itself, coloured as it goes |
+| `flow(nodes, links)` | Boxes joined by lines, with pulses running along them |
+| `ticker([…])` | Words passing by in a row that never ends |
+| `pointer([{ x, y, click }])` | A cursor that travels and clicks |
+| `confetti()` | A burst when the slide arrives |
+
+Give a piece a `fill` and a `radius` and it is its own card; `pad` keeps its drawing off the edges. A piece cannot run in PowerPoint, so an export leaves the words it ends on. The backdrop holds still for a viewer whose system asks for reduced motion.
+
 ## Walkthroughs
 
-<img src="docs/img/story.png" alt="A story slide with a timeline and three cards, and the player bar underneath" width="820">
+<p align="center"><img src="docs/img/walk.webp" alt="The narrated walkthrough playing: a story slide builds its timeline and three cards, then a screenshot slide zooms in on each numbered callout, with the player bar and timeline underneath" width="820"></p>
 
 A deck with narration gets a bar under the slide: Back and Next, play and pause, say again, speed, Auto, Text and Files. Across its top runs a timeline with one mark per spoken line, as wide as the line takes to say; click it to jump. Arrow keys move, Space pauses, `A` switches Auto (it waits about two seconds after each line, and Back turns it off), `C` shows the words.
 
@@ -148,7 +222,7 @@ In a live session the guide never takes over a tab you had open on something els
 
 **Ask, inside the deck.** Start the session with `--ask scripts/ask.sh` and the bar gets an Ask button (or press `/`). A question typed there goes to the guide with the step you are on and what the page shows, and the answer comes back as text and voice, one conversation from the first question to the last.
 
-<img src="docs/img/ask.png" alt="A guided slide with an Ask panel: two questions and their answers" width="820">
+<img src="docs/img/ask.webp" alt="A guided slide with an Ask panel: two questions and their answers" width="820">
 
 ## Packs
 
@@ -206,12 +280,15 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 ## Layout
 
 - `src/scene.ts`: the deck format and its builders
-- `src/kit.ts`: ready-made slides (`story`, `shot`, `guide`) and themes
+- `src/kit.ts`: ready-made slides (`story`, `shot`, `guide`)
+- `src/theme.ts`: the `dark` and `light` themes
+- `src/motion.ts`: the motion pieces
+- `src/fonts.ts`: the four typefaces in the bundle
 - `src/player.ts`: the browser player, with the bar and the timeline
 - `src/pptx.ts`: the .pptx exporter
 - `app/`: the page that lists and plays decks
 - `decks/`: one file per deck
-- `docs/`: the docs page and its pictures
+- `docs/`: the docs page, its pictures, and its copy of the fonts with their licences
 - `bin/wag.mjs`: the `wag` command, and what a pack is
 - `examples/snack/`: a pack for the made-up page
 - `tests/`: `npm test`, the bridge and the session against the made-up page

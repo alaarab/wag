@@ -5,135 +5,178 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>wag: slide decks written in code</title>
 <meta name="description" content="Slide decks written in code. They move, they talk, and they can walk someone through a real web page." />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M12 40 C 26 30, 38 48, 52 34' stroke='%23fbbf24' stroke-width='6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1'%3E%3Cstop stop-color='%23ffb86b'/%3E%3Cstop offset='.52' stop-color='%23ff7eb6'/%3E%3Cstop offset='1' stop-color='%238ab4ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='%230b0a12'/%3E%3Cpath d='M11 40 C 24 28, 38 48, 53 32' stroke='url(%23g)' stroke-width='7' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
 <style>
+/* the four typefaces wag ships with, as files beside this page (all under the Open Font License) */
+@font-face { font-family: "Bricolage Grotesque"; src: url(fonts/bricolage-grotesque.woff2) format("woff2"); font-weight: 200 800; font-stretch: 75% 100%; font-display: swap; }
+@font-face { font-family: Geist; src: url(fonts/geist.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url(fonts/geist-mono.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Instrument Serif"; src: url(fonts/instrument-serif-italic.woff2) format("woff2"); font-style: italic; font-display: swap; }
 :root {
-  --bg: #020617; --surface: #0b1224; --panel: #111a2e; --line: #1e293b; --line2: #334155;
-  --ink: #f8fafc; --dim: #94a3b8; --faint: #64748b;
-  --sky: #38bdf8; --amber: #fbbf24; --mint: #34d399; --violet: #a78bfa; --red: #f87171;
-  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-  --sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --bg: #0b0a12; --surface: #100e19; --panel: #15131f; --line: #272438; --line2: #3a3653;
+  --ink: #f6f4ff; --dim: #b3aecb; --faint: #7d7899;
+  --warm: #ffb86b; --pink: #ff7eb6; --sky: #8ab4ff; --amber: #ffc46b; --mint: #6fe3b4; --violet: #b79cff; --red: #ff7a8a;
+  --grad: linear-gradient(100deg, #ffb86b 0%, #ff7eb6 52%, #8ab4ff 100%);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --sans: Geist, Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --shadow: 0 30px 60px -28px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.06);
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 76px; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 a { color: var(--sky); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
 img, video { max-width: 100%; display: block; }
+/* a marked word: the italic serif against the sans, in the gradient */
+em.m, h1 em, h2 em, .lead em { font-family: var(--serif); font-style: italic; font-weight: 400; letter-spacing: -.01em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; padding-right: .06em; }
+.k, .tag, .eyebrow { font: 500 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
 
 /* top bar */
-.top { position: sticky; top: 0; z-index: 10; background: rgba(2,6,23,.82); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-.top-in { max-width: 1240px; margin: 0 auto; padding: 0 28px; height: 60px; display: flex; align-items: center; gap: 28px; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 800; font-size: 22px; letter-spacing: -.02em; }
+.top { position: sticky; top: 0; z-index: 10; background: rgba(11,10,18,.78); backdrop-filter: blur(14px) saturate(1.4); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1240px; margin: 0 auto; padding: 0 28px; height: 62px; display: flex; align-items: center; gap: 30px; }
+.brand { display: flex; align-items: flex-end; gap: 8px; color: var(--ink); font: 800 26px/1 var(--display); letter-spacing: -.055em; }
 .brand:hover { text-decoration: none; }
-.brand svg { width: 34px; height: 14px; margin-top: 10px; }
-.top nav { display: flex; gap: 22px; font-size: 15px; flex: 1; }
+.brand svg { width: 36px; height: 14px; margin-bottom: 1px; overflow: visible; }
+.top nav { display: flex; gap: 24px; font-size: 15px; flex: 1; }
 .top nav a { color: var(--dim); }
 .top nav a:hover { color: var(--ink); text-decoration: none; }
-.gh { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line2); border-radius: 999px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.gh { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; padding: 7px 15px; border: 1px solid var(--line2); border-radius: 999px; color: var(--ink); font-size: 14px; font-weight: 600; transition: border-color .2s; }
 .gh:hover { border-color: var(--sky); text-decoration: none; }
 .gh svg { width: 17px; height: 17px; fill: currentColor; }
 
-/* hero */
-.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
-.hero::before { content: ""; position: absolute; width: 720px; height: 720px; right: -160px; top: -300px; border-radius: 50%; background: radial-gradient(circle, #172554 0%, rgba(23,37,84,0) 70%); pointer-events: none; }
-.hero-in { position: relative; max-width: 1240px; margin: 0 auto; padding: 84px 28px 72px; display: grid; grid-template-columns: 1fr 1.25fr; gap: 56px; align-items: center; }
-.hero h1 { margin: 0; font-size: 96px; line-height: .95; letter-spacing: -.05em; font-weight: 800; }
-.hero h1 svg { display: block; width: 220px; height: 34px; margin: 8px 0 0 4px; }
-.hero h1 svg path { stroke-dasharray: 400; stroke-dashoffset: 400; animation: draw 1.1s .3s ease-out forwards; }
+/* hero: the same light that sits behind a slide */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); isolation: isolate; }
+.hero::before { content: ""; position: absolute; inset: 0; z-index: -2; background:
+  radial-gradient(closest-side, rgba(109,74,255,.5), transparent) -360px -470px / 1150px 1000px no-repeat,
+  radial-gradient(closest-side, rgba(255,77,141,.34), transparent) calc(100% + 240px) -140px / 900px 900px no-repeat,
+  radial-gradient(closest-side, rgba(47,139,255,.3), transparent) 46% calc(100% + 520px) / 1100px 1000px no-repeat; }
+.hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background-image: linear-gradient(rgba(246,244,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(246,244,255,.05) 1px, transparent 1px); background-size: 64px 64px; -webkit-mask-image: radial-gradient(ellipse at 28% 30%, #000 0%, transparent 70%); mask-image: radial-gradient(ellipse at 28% 30%, #000 0%, transparent 70%); }
+.hero-in { position: relative; max-width: 1240px; margin: 0 auto; padding: 92px 28px 84px; display: grid; grid-template-columns: 1fr 1.22fr; gap: 60px; align-items: center; }
+.eyebrow { color: var(--faint); margin: 0 0 18px; }
+.hero h1 { margin: 0; font: 800 172px/.84 var(--display); letter-spacing: -.055em; }
+.hero h1 span { display: block; overflow: hidden; padding: 0 .06em .16em 0; margin-bottom: -.16em; }
+.hero h1 span b { display: inline-block; font-weight: inherit; animation: rise 1s .05s cubic-bezier(.16,1,.3,1) backwards; }
+.hero h1 svg { display: block; width: 300px; height: 36px; margin: 10px 0 0 6px; overflow: visible; transform-origin: 2% 60%; animation: wag 3.4s 1.7s ease-in-out infinite; }
+.hero h1 svg path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .9s .55s cubic-bezier(.16,1,.3,1) forwards; }
+@keyframes rise { from { transform: translateY(110%); } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
-.lead { font-size: 26px; line-height: 1.35; margin: 26px 0 14px; color: var(--ink); font-weight: 600; letter-spacing: -.01em; }
-.hero p.sub { color: var(--dim); margin: 0 0 30px; font-size: 18px; }
+@keyframes wag { 0%, 33%, 100% { transform: rotate(0); } 5% { transform: rotate(-7deg); } 11% { transform: rotate(6deg); } 17% { transform: rotate(-5deg); } 23% { transform: rotate(4deg); } 28% { transform: rotate(-2deg); } }
+.lead { font: 700 34px/1.14 var(--display); letter-spacing: -.03em; margin: 34px 0 16px; color: var(--ink); max-width: 15em; }
+.hero p.sub { color: var(--dim); margin: 0 0 32px; font-size: 18px; max-width: 31em; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 999px; font-weight: 700; font-size: 16px; }
-.btn:hover { text-decoration: none; transform: translateY(-1px); }
-.btn.main { background: var(--sky); color: #0f172a; }
-.btn.alt { border: 1px solid var(--line2); color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 24px; border-radius: 999px; font-weight: 600; font-size: 16px; transition: transform .2s cubic-bezier(.16,1,.3,1), border-color .2s; }
+.btn:hover { text-decoration: none; transform: translateY(-2px); }
+.btn.main { background: var(--ink); color: var(--bg); }
+.btn.alt { border: 1px solid var(--line2); color: var(--ink); background: rgba(246,244,255,.04); }
 .btn.alt:hover { border-color: var(--sky); }
-.window { border-radius: 14px; border: 1px solid var(--line2); background: var(--surface); box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(56,189,248,.06); overflow: hidden; }
-.window .chrome { height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.window { border-radius: 16px; border: 1px solid var(--line2); background: var(--surface); box-shadow: 0 50px 100px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(246,244,255,.04), 0 0 120px -30px rgba(255,126,182,.35); overflow: hidden; transform: perspective(1600px) rotateY(-5deg) rotateX(2deg); transition: transform .6s cubic-bezier(.16,1,.3,1); }
+.window:hover { transform: none; }
+.window .chrome { height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border-bottom: 1px solid var(--line); }
 .window .chrome i { width: 11px; height: 11px; border-radius: 50%; background: var(--line2); }
 .window .chrome span { margin-left: 10px; font: 12px var(--mono); color: var(--faint); }
 
+/* what it looks like: stills of the demo deck */
+.gallery { max-width: 1240px; margin: 0 auto; padding: 64px 28px 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.gallery figure { margin: 0; }
+.gallery img { border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 30px 60px -30px rgba(0,0,0,.8); transition: transform .5s cubic-bezier(.16,1,.3,1), border-color .3s; }
+.gallery figure:hover img { transform: translateY(-6px) scale(1.015); border-color: var(--line2); }
+.gallery figcaption { margin-top: 12px; color: var(--dim); font-size: 15px; }
+.gallery figcaption b { display: block; color: var(--faint); font: 500 12px var(--mono); letter-spacing: .16em; text-transform: uppercase; margin-bottom: 2px; }
+
 /* feature cards */
-.cards { max-width: 1240px; margin: 0 auto; padding: 56px 28px 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 26px 26px 22px; position: relative; overflow: hidden; }
-.card::before { content: ""; position: absolute; left: 0; top: 0; right: 0; height: 4px; background: var(--c); }
-.card h3 { margin: 0 0 8px; font-size: 20px; letter-spacing: -.01em; }
+.cards { max-width: 1240px; margin: 0 auto; padding: 44px 28px 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 28px 28px 24px; position: relative; overflow: hidden; box-shadow: var(--shadow); }
+.card::before { content: ""; position: absolute; left: 28px; top: 0; width: 44px; height: 3px; border-radius: 0 0 3px 3px; background: var(--c); box-shadow: 0 0 18px var(--c); }
+.card h3 { margin: 8px 0 8px; font: 700 24px/1.15 var(--display); letter-spacing: -.025em; }
 .card p { margin: 0; color: var(--dim); font-size: 16px; }
-.card .tag { font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
+.card .tag { color: var(--c); }
 
 /* docs body */
 .doc { max-width: 1240px; margin: 0 auto; padding: 40px 28px 100px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; }
-.toc { position: sticky; top: 84px; align-self: start; font-size: 14.5px; max-height: calc(100vh - 100px); overflow: auto; }
-.toc b { display: block; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 18px 0 8px; }
+.toc { position: sticky; top: 86px; align-self: start; font-size: 14.5px; max-height: calc(100vh - 104px); overflow: auto; }
+.toc b { display: block; font: 500 12px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 20px 0 8px; }
 .toc a { display: block; color: var(--dim); padding: 4px 0 4px 12px; border-left: 2px solid var(--line); }
 .toc a:hover { color: var(--ink); text-decoration: none; }
-.toc a.on { color: var(--sky); border-left-color: var(--sky); }
+.toc a.on { color: var(--ink); border-left-color: var(--pink); }
 main { min-width: 0; max-width: 860px; }
 main section { padding-top: 24px; }
-main h2 { font-size: 34px; letter-spacing: -.025em; margin: 40px 0 14px; line-height: 1.2; }
-main h2 .k { font: 600 13px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--sky); display: block; margin-bottom: 6px; }
-main h3 { font-size: 21px; margin: 34px 0 8px; letter-spacing: -.01em; }
+main h2 { font: 800 44px/1.05 var(--display); letter-spacing: -.035em; margin: 44px 0 16px; }
+main h2 .k { display: block; margin-bottom: 10px; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; width: max-content; }
+main h3 { font: 700 26px/1.15 var(--display); margin: 38px 0 10px; letter-spacing: -.025em; }
 main h4 { font-size: 17px; margin: 26px 0 6px; }
-main p, main li { color: #cbd5e1; }
-main strong { color: var(--ink); }
+main p, main li { color: #cfcbe2; }
+main strong { color: var(--ink); font-weight: 600; }
 main ul { padding-left: 22px; }
 main li { margin: 6px 0; }
-code { font: .8em var(--mono); background: var(--panel); border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; color: #e2e8f0; overflow-wrap: anywhere; }
-pre { position: relative; margin: 18px 0 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; overflow: auto; font: 14px/1.6 var(--mono); }
-pre code { background: none; border: 0; padding: 0; font-size: inherit; color: #e2e8f0; }
-pre .copy { position: absolute; top: 10px; right: 10px; font: 600 12px var(--sans); color: var(--dim); background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 10px; cursor: pointer; opacity: 0; transition: opacity .15s; }
-pre:hover .copy { opacity: 1; }
-.t-k { color: var(--violet); } .t-s { color: var(--mint); } .t-c { color: var(--faint); font-style: italic; } .t-n { color: var(--amber); } .t-f { color: var(--sky); }
-figure { margin: 22px 0 28px; }
-figure img, figure video { border-radius: 12px; border: 1px solid var(--line2); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
-figcaption { color: var(--faint); font-size: 14.5px; margin-top: 10px; }
+code { font: .8em var(--mono); background: var(--panel); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; color: #e7e4f5; overflow-wrap: anywhere; }
+pre { position: relative; margin: 18px 0 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; overflow: auto; font: 14px/1.65 var(--mono); box-shadow: var(--shadow); }
+pre code { background: none; border: 0; padding: 0; font-size: inherit; color: #e7e4f5; }
+pre .copy { position: absolute; top: 10px; right: 10px; font: 500 12px var(--sans); color: var(--dim); background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 4px 10px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+pre:hover .copy, pre .copy:focus-visible { opacity: 1; }
+.t-k { color: var(--pink); } .t-s { color: var(--warm); } .t-c { color: var(--faint); } .t-n { color: var(--sky); } .t-f { color: var(--sky); }
+figure { margin: 24px 0 30px; }
+figure img, figure video { border-radius: 14px; border: 1px solid var(--line2); box-shadow: 0 30px 70px -30px rgba(0,0,0,.8); }
+figcaption { color: var(--faint); font-size: 14.5px; margin-top: 12px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 15.5px; }
-th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--faint); font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-td { color: #cbd5e1; }
+th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--faint); font: 500 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+td { color: #cfcbe2; }
 td:first-child { color: var(--ink); white-space: nowrap; }
-kbd { font: 600 13px var(--mono); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line2); border-bottom-width: 2px; background: var(--panel); color: var(--ink); }
-.note { border: 1px solid var(--line2); border-left: 4px solid var(--c, var(--sky)); background: var(--panel); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+kbd { font: 500 13px var(--mono); padding: 2px 7px; border-radius: 7px; border: 1px solid var(--line2); border-bottom-width: 2px; background: var(--panel); color: var(--ink); }
+.note { border: 1px solid var(--line); border-left: 3px solid var(--c, var(--sky)); background: var(--panel); border-radius: 12px; padding: 15px 20px; margin: 20px 0; }
 .note p { margin: 0; }
 .note.safe { --c: var(--mint); }
 .note.warn { --c: var(--amber); }
 .buttons3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0 8px; }
-.buttons3 div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
-.buttons3 b { display: inline-block; font-size: 14px; padding: 4px 12px; border-radius: 8px; background: #1e293b; margin-bottom: 8px; }
+.buttons3 div { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+.buttons3 b { display: inline-block; font: 500 12.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 13px; border-radius: 99px; background: rgba(138,180,255,.14); border: 1px solid rgba(138,180,255,.4); color: var(--sky); margin-bottom: 10px; }
+.buttons3 div:nth-child(2) b { background: rgba(255,196,107,.14); border-color: rgba(255,196,107,.4); color: var(--amber); }
+.buttons3 div:nth-child(3) b { background: rgba(111,227,180,.14); border-color: rgba(111,227,180,.4); color: var(--mint); }
 .buttons3 p { margin: 0; font-size: 15px; }
 .flow { display: flex; align-items: stretch; gap: 0; margin: 22px 0; flex-wrap: wrap; }
-.flow div { flex: 1; min-width: 150px; background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; padding: 14px 16px; font-size: 14.5px; color: var(--dim); }
+.flow div { flex: 1; min-width: 150px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; font-size: 14.5px; color: var(--dim); }
 .flow div b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
-.flow span { align-self: center; color: var(--sky); padding: 0 8px; font: 13px var(--mono); text-align: center; }
+.flow span { align-self: center; color: var(--pink); padding: 0 8px; font: 13px var(--mono); text-align: center; }
+.pieces { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 28px; margin: 14px 0 22px; }
+.pieces div { display: flex; gap: 14px; align-items: baseline; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.pieces code { flex: none; }
+.pieces span { color: var(--dim); font-size: 15px; }
 footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; }
 footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 
 @media (max-width: 1000px) {
-  .hero-in { grid-template-columns: 1fr; padding-top: 56px; }
-  .hero h1 { font-size: 72px; }
-  .cards { grid-template-columns: 1fr; }
+  .hero-in { grid-template-columns: 1fr; padding-top: 60px; }
+  .hero h1 { font-size: 120px; }
+  .window { transform: none; }
+  .cards, .gallery { grid-template-columns: 1fr; }
   .doc { grid-template-columns: 1fr; }
   .toc { display: none; }
   .top nav { display: none; }
-  .pair, .buttons3 { grid-template-columns: 1fr; }
+  .pair, .buttons3, .pieces { grid-template-columns: 1fr; }
   table { display: block; overflow-x: auto; }
   td:first-child { white-space: normal; }
   .flow span { width: 100%; padding: 4px 0; }
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .hero h1 svg path { animation: none; stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .hero h1 span b, .hero h1 svg { animation: none; }
+  .hero h1 svg path { animation: none; stroke-dashoffset: 0; }
+  .window, .btn, .gallery img { transition: none; }
+}
 </style>
 </head>
 <body>
 
 <header class="top">
   <div class="top-in">
-    <a class="brand" href="#">wag<svg viewBox="0 0 68 24"><path d="M3 15 C 20 4, 40 24, 65 8" stroke="#fbbf24" stroke-width="5" fill="none" stroke-linecap="round"/></svg></a>
+    <a class="brand" href="#">wag<svg viewBox="0 0 68 24"><defs><linearGradient id="tail-a" x2="1"><stop stop-color="#ffb86b"/><stop offset=".52" stop-color="#ff7eb6"/><stop offset="1" stop-color="#8ab4ff"/></linearGradient></defs><path d="M3 15 C 20 4, 40 24, 65 8" stroke="url(#tail-a)" stroke-width="5" fill="none" stroke-linecap="round"/></svg></a>
     <nav>
       <a href="#start">Start</a>
       <a href="#slides">Slides</a>
+      <a href="#motion">Motion pieces</a>
       <a href="#walkthroughs">Walkthroughs</a>
       <a href="#guided">Guided mode</a>
       <a href="#live">Live guide</a>
@@ -146,26 +189,36 @@ footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; ju
 <section class="hero">
   <div class="hero-in">
     <div>
-      <h1>wag<svg viewBox="0 0 220 34"><path d="M6 24 C 70 4, 130 34, 214 10" stroke="#fbbf24" stroke-width="8" fill="none" stroke-linecap="round"/></svg></h1>
-      <p class="lead">Slide decks written in code. They move, they talk, and they can walk someone through a real web page.</p>
-      <p class="sub">A deck is one TypeScript file. The player animates it with springs, reads it aloud in a voice that runs on your own machine, and in guided mode points at a live page in a browser you are already signed in to, without ever pressing anything that saves.</p>
+      <p class="eyebrow">Slide decks, written in code</p>
+      <h1><span><b>wag</b></span><svg viewBox="0 0 340 40"><defs><linearGradient id="tail-b" x2="1"><stop stop-color="#ffb86b"/><stop offset=".52" stop-color="#ff7eb6"/><stop offset="1" stop-color="#8ab4ff"/></linearGradient></defs><path pathLength="1" d="M6 24 C 70 4, 130 38, 200 18 S 300 6, 334 16" stroke="url(#tail-b)" stroke-width="11" fill="none" stroke-linecap="round"/></svg></h1>
+      <p class="lead">Slides that <em>move</em>, decks that <em>talk</em>, and guides that walk someone through a real web page.</p>
+      <p class="sub">A deck is one TypeScript file. The player springs it between layouts, reads it aloud in a voice that runs on your own machine, and in guided mode points at a live page in a browser you are already signed in to, without ever pressing anything that saves.</p>
       <div class="actions">
         <a class="btn main" href="#start">Get started</a>
-        <a class="btn alt" href="#guided">See guided mode</a>
+        <a class="btn alt" href="#motion">See the motion pieces</a>
       </div>
     </div>
     <div class="window">
-      <div class="chrome"><i></i><i></i><i></i><span>localhost:5179/?deck=guide#page</span></div>
-      <video src="img/callouts.mp4" poster="img/callout.png" autoplay muted loop playsinline aria-label="A screenshot slide stepping through its numbered callouts"></video>
+      <div class="chrome"><i></i><i></i><i></i><span>localhost:5179/?deck=demo</span></div>
+      <video src="img/tour.mp4" poster="img/title.webp" autoplay muted loop playsinline aria-label="The demo deck playing: the title with its floating charts, a film opening, a dog that answers the pointer, cards that open, figures counting up, code typing itself, and a diagram with pulses running along its lines"></video>
     </div>
   </div>
 </section>
 
+<div class="gallery">
+  <figure><img src="img/numbers.webp" alt="A slide of figures: three counters, a bar chart with one bar picked out, a line chart and a ring at 72 percent" loading="lazy" /><figcaption><b>Motion pieces</b>Figures that count up, bars that grow, a line that draws itself.</figcaption></figure>
+  <figure><img src="img/code.webp" alt="A slide with a window of code on the left and the box that code makes on the right, tilted because the pointer is over it" loading="lazy" /><figcaption><b>Written in code</b>The code types itself. The box beside it is what it makes.</figcaption></figure>
+  <figure><img src="img/dog.webp" alt="A dog's face built from rounded shapes, eyes shut and tongue out, with a speech bubble saying Woof" loading="lazy" /><figcaption><b>States</b>A dog made of boxes, ellipses and a path. Hover it.</figcaption></figure>
+  <figure><img src="img/film.webp" alt="A slide that opens like a film: the words Slides that move like film in large type beside three fanned cards" loading="lazy" /><figcaption><b>Scenes</b>A whole slide as one piece of Motion code.</figcaption></figure>
+  <figure><img src="img/cards.webp" alt="Three tall cards in violet, rose and blue, named Springs, States and Fallback" loading="lazy" /><figcaption><b>Click</b>Each card opens to fill the slide, and closes again.</figcaption></figure>
+  <figure><img src="img/walk-start.webp" alt="The opening slide of a narrated deck, A deck that walks you through, with the player bar and its timeline underneath" loading="lazy" /><figcaption><b>Walkthroughs</b>A deck that talks, with a timeline to jump around in.</figcaption></figure>
+</div>
+
 <div class="cards">
-  <div class="card" style="--c: var(--violet)">
+  <div class="card" style="--c: var(--pink)">
     <div class="tag">Decks</div>
     <h3>Slides that move</h3>
-    <p>Elements spring between states on hover, click and drag. Builds, drawn strokes, morphing transitions, routes between slides, answers saved to Excel, and an export to PowerPoint.</p>
+    <p>Elements spring between states on hover, click and drag. Type that arrives word by word, charts that draw themselves, builds, morphing transitions, answers saved to Excel, and an export to PowerPoint.</p>
   </div>
   <div class="card" style="--c: var(--sky)">
     <div class="tag">Walkthroughs</div>
@@ -185,6 +238,8 @@ footer div { max-width: 1240px; margin: 0 auto; padding: 28px; display: flex; ju
   <a href="#start">Quick start</a>
   <a href="#slides">A slide</a>
   <a href="#can-do">What a slide can do</a>
+  <a href="#look">Type and themes</a>
+  <a href="#motion">Motion pieces</a>
   <b>Walkthroughs</b>
   <a href="#walkthroughs">Narration</a>
   <a href="#player">The player</a>
@@ -243,8 +298,8 @@ const dog = slide(
 export default deck({}, [dog]);</code></pre>
   <p>The canvas is 1280 by 720. A slide is a small state machine: a state is a set of overrides keyed by element id, and the player springs between layouts with <a href="https://motion.dev">Motion</a>. Hovering the dog above switches on <code>woof</code>; moving away switches it off.</p>
   <figure>
-    <img src="img/demo-title.png" alt="The demo deck's title slide: the word wag over a drawn yellow stroke, and four coloured buttons" loading="lazy" />
-    <figcaption>The first slide of <code>decks/demo.ts</code>. The stroke draws itself in, the circle drifts, and the buttons spring on hover and press.</figcaption>
+    <img src="img/title.webp" alt="The demo deck's title slide: the word wag over a gradient tail, a line about slides that move, and three small cards holding a line chart, a bar chart and a counter" loading="lazy" />
+    <figcaption>The first slide of <code>decks/demo.ts</code>. The tail draws itself in and wags, the three cards float and count up, and the words along the bottom never stop.</figcaption>
   </figure>
   <p>The elements are <code>box</code>, <code>ellipse</code>, <code>text</code>, <code>image</code>, <code>video</code>, <code>path</code>, <code>field</code>, <code>choice</code> and <code>scene</code>, which hands you a DOM node to animate however you like.</p>
 </section>
@@ -269,6 +324,72 @@ export default deck({}, [dog]);</code></pre>
   </table>
 </section>
 
+<section id="look">
+  <h3>Type and themes</h3>
+  <p>wag ships four typefaces as files in the bundle, so a deck looks the same on any machine and in a recording, and nothing is fetched from a font service: Bricolage Grotesque for headlines, Geist for text, Instrument Serif for marked words, and Geist Mono for labels and code. <code>FONTS</code> names them. A theme is the look in one object: colours, typefaces and the light behind a slide. <code>dark</code> and <code>light</code> ship, and your own is a copy with other values.</p>
+  <pre><code class="ts">import { aurora, dark, deck, look, slide, text } from 'wag';
+
+const t = dark;
+
+const title = slide({}, [
+  aurora({ theme: t, strength: 1 }),       // light drifting behind the slide
+  text('Slides that *move*', {             // words between asterisks are set in the accent face
+    x: 80, y: 260, w: 1120, h: 120,
+    font: t.display, fontSize: 104, weight: 800,
+    tracking: -0.04, leading: 1,           // letter spacing in ems, line height
+    reveal: 'words',                       // each word rises out of its own line
+  }),
+]);
+
+export default deck({ ...look(t) }, [title]);  // the deck's background, font and accent, from the theme</code></pre>
+  <table>
+    <tr><th>To</th><th>Write</th></tr>
+    <tr><td>Set type</td><td><code>font</code>, <code>weight</code>, <code>italic</code>, <code>caps</code>, <code>tracking: -0.03</code>, <code>leading: 1.1</code></td></tr>
+    <tr><td>Mark a word</td><td><code>'Slides that *move*'</code>. The deck's <code>accent</code> says how marked words look: a face, a slant, a colour or a gradient.</td></tr>
+    <tr><td>Bring text in</td><td><code>reveal: 'words'</code> or <code>'letters'</code></td></tr>
+    <tr><td>A gradient</td><td><code>gradient: 'linear-gradient(…)'</code> lies over a box or an ellipse, and colours the letters of text</td></tr>
+    <tr><td>Depth and glass</td><td><code>shadow: '0 30px 60px -28px rgba(0,0,0,.7)'</code>, <code>glass: 16</code> blurs what is behind</td></tr>
+    <tr><td>Decoration</td><td><code>decor: true</code> never takes the pointer, and an export leaves it out</td></tr>
+  </table>
+</section>
+
+<section id="motion">
+  <h2><span class="k">Motion pieces</span>Things that <em>move</em>, ready made</h2>
+  <p>Each piece is one call. It sits in a slide the way a box does, so states, hover and transitions move it as a whole, it plays from the start whenever its slide appears, and it takes its colours and type from the theme.</p>
+  <figure>
+    <img src="img/numbers.webp" alt="A slide of figures: three counters, a bar chart with one bar picked out, a line chart ending at 396 and a ring at 72 percent" loading="lazy" />
+    <figcaption>One slide of <code>decks/demo.ts</code>: three <code>stat</code>, a <code>bars</code>, a <code>trend</code> and a <code>ring</code>. Every figure in it is made up.</figcaption>
+  </figure>
+  <pre><code class="ts">import { bars, dark, ring, stat, trend } from 'wag';
+
+// give a piece a fill and a radius and it is its own card; pad keeps its drawing off the edges
+const card = { fill: dark.panel, radius: 22, pad: 26, theme: dark };
+
+stat(1284, { ...card, x: 80, y: 196, w: 352, h: 150, label: 'Biscuits', delta: '+31%' }),
+bars([{ label: 'Wed', value: 214 }, { label: 'Thu', value: 388 }], { ...card, x: 80, y: 370, w: 480, h: 290, mark: 1 }),
+trend([210, 232, 260, 290, 340, 396], { ...card, x: 592, y: 370, w: 372, h: 290, end: '396' }),
+ring(0.72, { ...card, x: 996, y: 370, w: 204, h: 290, label: 'of budget' }),</code></pre>
+  <div class="pieces">
+    <div><code>aurora()</code><span>Light drifting behind a slide: three glows, a faint grid, a little grain</span></div>
+    <div><code>wordmark()</code><span>The wag name, with a tail that wags</span></div>
+    <div><code>stat(n, …)</code><span>A figure that counts up, with a label and a change</span></div>
+    <div><code>bars([…], …)</code><span>A bar chart that grows, one bar picked out</span></div>
+    <div><code>trend([…], …)</code><span>A line chart that draws itself</span></div>
+    <div><code>ring(share, …)</code><span>A ring that fills while its percentage counts</span></div>
+    <div><code>code(source, …)</code><span>A window of code that types itself, coloured as it goes</span></div>
+    <div><code>flow(nodes, links)</code><span>Boxes joined by lines, with pulses running along them</span></div>
+    <div><code>ticker([…])</code><span>Words passing by in a row that never ends</span></div>
+    <div><code>pointer([…])</code><span>A cursor that travels and clicks, for showing how something is used</span></div>
+    <div><code>confetti()</code><span>A burst when the slide arrives</span></div>
+    <div><code>scene(…)</code><span>Your own: any DOM and any Motion code, in a region of a slide</span></div>
+  </div>
+  <div class="pair">
+    <figure><img src="img/code.webp" alt="A window of code on the left and the box it makes on the right" loading="lazy" /><figcaption><code>code()</code> beside the box it describes.</figcaption></figure>
+    <figure><img src="img/ways.webp" alt="A diagram: one deck file on the left joined by curved lines to six boxes naming the ways it can be played" loading="lazy" /><figcaption><code>flow()</code>: the lines draw, then pulses run along them.</figcaption></figure>
+  </div>
+  <div class="note"><p>A piece cannot run in PowerPoint, so an export leaves the words it ends on: the figure, the bar values, the code. The backdrop holds still for a viewer whose system asks for reduced motion.</p></div>
+</section>
+
 <section id="walkthroughs">
   <h2><span class="k">Walkthroughs</span>A deck that talks</h2>
   <p>A walkthrough deck explains something on its own: it talks, points at parts of a screenshot, and hands out files. Give a slide <code>narration</code>, a list of plain sentences. The first is said when the slide arrives, and each later one after the matching step.</p>
@@ -288,7 +409,7 @@ export default deck({}, [dog]);</code></pre>
   <h3>The player</h3>
   <p>A deck with narration or files gets a bar under the slide, with a timeline across its top. Every spoken line is one mark on the timeline, as wide as the line takes to say, with gaps between slides. Click anywhere on it to jump there; hover a mark to see its slide and line. The clock counts time so far against the whole deck.</p>
   <figure>
-    <img src="img/story.png" alt="A story slide with a timeline and three cards, and the player bar underneath with Back, Next, the timeline and the clock" loading="lazy" />
+    <img src="img/story.webp" alt="A story slide with a timeline and three cards, and the player bar underneath with Back, Next, the timeline and the clock" loading="lazy" />
     <figcaption>The player bar: Back and Next, the slide count and title, play and pause, say again, speed, Auto, Text, the clock and Files. The timeline runs above it.</figcaption>
   </figure>
   <table>
@@ -350,8 +471,8 @@ shot('/guide/page.png', {
   ],
 })</code></pre>
   <figure>
-    <img src="img/callout.png" alt="A callout zoomed in on three buttons, with a yellow ring, the label The buttons are easy to miss up here, and a Known issue tag" loading="lazy" />
-    <figcaption>Callout three of <code>decks/guide.ts</code>, marked as a known issue.</figcaption>
+    <video src="img/callouts.mp4" poster="img/callout.webp" autoplay muted loop playsinline aria-label="A screenshot slide stepping through its four numbered callouts, zooming in on each"></video>
+    <figcaption>The screenshot slide of <code>decks/guide.ts</code> stepping through its callouts. The third is marked as a known issue.</figcaption>
   </figure>
 </section>
 
@@ -396,7 +517,7 @@ shot('/guide/page.png', {
     </figure>
   </div>
   <figure>
-    <img src="img/check.png" alt="A guided slide with a Check panel listing three ticks: debits equal credits, the Check sheet says it balances, the entry ties to the amount on the page" loading="lazy" />
+    <img src="img/check.webp" alt="A guided slide with a Check panel listing three ticks: debits equal credits, the Check sheet says it balances, the entry ties to the amount on the page" loading="lazy" />
     <figcaption><strong>Check</strong> after Show me downloaded the correcting entry: the workbook is added up and compared with the page.</figcaption>
   </figure>
   <p>A target is the words on the page, or <code>{ role, name }</code> the way a screen reader names a control, or <code>{ css }</code>; <code>within: 'dialog'</code> narrows it to the open dialog. A check reads from the page (<code>pick</code> is a pattern whose first group is the figure), from a column of a downloaded workbook (summed by default; also <code>all</code>, <code>first</code>, <code>count</code> or <code>moved</code>, with <code>where</code> to keep some rows and <code>*</code> in a sheet name to take several sheets), or a fixed value. Readings can be added together with <code>{ add, minus }</code>.</p>
@@ -560,7 +681,7 @@ Rehearsal of "A guided deck": 2 of 6 steps work, 1 with words only, 3 that did n
   <h3>Ask, inside the deck</h3>
   <p>With <code>--ask</code>, the session can answer questions typed into the deck itself, so there is no second window to keep open. The bar gets an <strong>Ask</strong> button (or press <kbd>/</kbd>). The deck pauses, the question goes to the guide along with which step you are on, what the slide says, the last Check result and where the page is, and the answer comes back as text and voice. Each question carries on the same conversation, so a follow-up like "and who owns that?" works.</p>
   <figure>
-    <img src="img/ask.png" alt="A guided slide with an Ask panel: two questions and their answers, and a box to type the next one" loading="lazy" />
+    <img src="img/ask.webp" alt="A guided slide with an Ask panel: two questions and their answers, and a box to type the next one" loading="lazy" />
     <figcaption>Two questions about the made-up page. The second answer came from a table row behind the open dialog.</figcaption>
   </figure>
   <pre><code class="sh"># with the browser from "Running the bridge" up on port 9333, and after npm run build
@@ -638,7 +759,10 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build</code></pre>
   <table>
     <tr><th>File</th><th>What it is</th></tr>
     <tr><td><code>src/scene.ts</code></td><td>The deck format and its builders</td></tr>
-    <tr><td><code>src/kit.ts</code></td><td>Ready-made slides: <code>story</code>, <code>shot</code>, <code>guide</code>, and the <code>dark</code> and <code>light</code> themes</td></tr>
+    <tr><td><code>src/kit.ts</code></td><td>Ready-made slides: <code>story</code>, <code>shot</code>, <code>guide</code></td></tr>
+    <tr><td><code>src/theme.ts</code></td><td>The <code>dark</code> and <code>light</code> themes, and <code>look()</code></td></tr>
+    <tr><td><code>src/motion.ts</code></td><td>The motion pieces</td></tr>
+    <tr><td><code>src/fonts.ts</code>, <code>docs/fonts/</code></td><td>The four typefaces, all under the Open Font License</td></tr>
     <tr><td><code>src/player.ts</code></td><td>The browser player, with the bar and the timeline</td></tr>
     <tr><td><code>src/pptx.ts</code></td><td>The .pptx exporter</td></tr>
     <tr><td><code>app/</code></td><td>The page that lists and plays decks</td></tr>
