@@ -26,5 +26,9 @@
   },
   "exports": {
     ".": "./src/index.ts"
+  },
+  "bin": {
+    "wag": "bin/wag.mjs",
+    "guide": "scripts/guide.mjs"
   }
 }

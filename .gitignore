@@ -8,3 +8,5 @@ public/*/wag.json
 public/*/walk.json
 # the made-up decks, built for the tests
 tests/.out
+# a pack keeps its sessions beside it
+examples/*/sessions

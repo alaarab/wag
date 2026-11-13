@@ -1,0 +1,10 @@
+{
+  "app": "http://127.0.0.1:5173/guide",
+  "start": "/app.html",
+  "decks": "../../dist",
+  "sessions": "sessions",
+  "label": "Made-up data",
+  "pronounce": { "Marzember": "Mar zember" },
+  "browser": { "cdp": "http://127.0.0.1:9333" },
+  "ask": { "dir": "notes" }
+}
