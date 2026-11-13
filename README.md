@@ -123,6 +123,16 @@ To watch it on your own screen, start the browser with a window and add `--live`
 
 <img src="docs/img/bar.png" alt="A made-up page with the bar along the bottom: the step, a question that was asked, the answer, and Back, Continue, Ask, Auto and Sound" width="820">
 
+**Jump, ask with nothing playing, rehearse.** The bar's **Steps** list jumps to any step: dialogs are shut and the page is made ready first, by doing again the Show me of the steps since the last one that opens a page. Start the session with `--bar <address>` and the bar is up from the start with no walk playing: a question is answered on whatever page shows the answer, the page stays there, and **Walks** starts any walk the session has. Before you show a walk to anyone, `--rehearse <deck>` plays every step with nobody watching and says which ones work. It never presses a step's own click; it only looks whether the button is there.
+
+```
+  1. words only        0 s  A deck that drives the page
+  2. works           0.8 s  Open the page
+  3. works           0.6 s  Pick the month
+  4. failed            6 s  Open item 1
+       "A row that is not there" did not show on the page within 6 seconds.
+```
+
 In a live session the guide never takes over a tab you had open on something else. It works in the tab in front only when that tab is already on the step's page; otherwise it opens a tab of its own. It never presses a button that hands over a file, whoever asks.
 
 **Ask, inside the deck.** Start the session with `--ask scripts/ask.sh` and the bar gets an Ask button (or press `/`). A question typed there goes to the guide with the step you are on and what the page shows, and the answer comes back as text and voice, one conversation from the first question to the last.

@@ -307,6 +307,8 @@ async function lookOnly(work) {
 
 function locate(target) {
   const t = typeof target === 'string' ? { text: target } : target;
+  // something the bridge has already found on the page itself
+  if (t.found) return t.found;
   // only what can be seen counts: an app may keep a closed dialog or an unused tab in the page
   const root = t.within ? page.locator(t.within === 'dialog' ? '[role="dialog"]' : t.within).locator('visible=true').last() : page;
   const found = t.css
@@ -385,7 +387,11 @@ function ringInPage(el, [note, tone]) {
 
 async function ring(target, note, tone = '#38bdf8') {
   const found = locate(target);
-  await found.waitFor({ state: 'visible', timeout: 6000 });
+  // said in words, with what was looked for: a rehearsal or a guide reads this to know what to fix
+  await found.waitFor({ state: 'visible', timeout: 6000 }).catch((error) => {
+    const within = typeof target === 'object' && target.within ? ` in the ${target.within}` : '';
+    throw new Error(/Timeout/.test(error.message) ? `"${words(target)}" did not show on the page${within} within 6 seconds.` : error.message);
+  });
   await found.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await found.evaluate(ringInPage, [note ?? '', tone]);
   return found;
@@ -416,6 +422,15 @@ async function holds(expect) {
   return true;
 }
 
+/** what a wait was for, in words, for when it does not come */
+const expected = (expect) =>
+  [expect.url && `the address to have "${expect.url}"`, expect.see && `"${words(expect.see)}" to show`, expect.gone && `"${words(expect.gone)}" to go away`, expect.file && `a file like "${expect.file.like}"`].filter(Boolean).join(' and ') || 'nothing it could name';
+
+/** A press that timed out says so in words; anything else is passed on as it is. */
+const orSay = (why) => (error) => {
+  throw /Timeout/.test(error.message) ? new Error(why) : error;
+};
+
 async function until(expect, ms) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -423,6 +438,16 @@ async function until(expect, ms) {
     await page.waitForTimeout(300);
   }
   return holds(expect);
+}
+
+/** The one list on the page that has this choice, with the choice's full label. Only `count` when there is none, or more than one. */
+async function listWith(choice) {
+  const lists = page.locator('select').filter({ has: page.locator('option', { hasText: choice }) }).locator('visible=true');
+  const count = await lists.count();
+  if (count !== 1) return { count };
+  const list = lists.first();
+  const label = ((await list.locator('option', { hasText: choice }).first().textContent()) ?? choice).trim();
+  return { count, label, from: { found: list, name: (await list.getAttribute('aria-label')) ?? 'the list' } };
 }
 
 /** downloads kept this session, by the name the deck gave them */
@@ -444,11 +469,25 @@ async function act(action, base) {
   }
   if ('click' in action) {
     mayActHere('click');
+    // words that are a choice in a list are picked there: a choice is not something a click can reach
+    const asText = typeof action.click === 'string' ? action.click : action.click.text;
+    if (asText && !(await locate(action.click).isVisible().catch(() => false))) {
+      const list = await listWith(asText);
+      if (list.from) return act({ choose: list.label, from: list.from }, base);
+    }
     const found = await ring(action.click);
     await guard(found);
     await page.waitForTimeout(700);
     await clear();
-    await lookOnly(() => found.click({ timeout: 15000 }));
+    if ((await found.evaluate((el) => el.tagName)) === 'OPTION') {
+      // a choice in a list is picked, not clicked: a click on it does nothing in most browsers
+      const list = found.locator('xpath=ancestor::select[1]');
+      await guard(list);
+      const label = ((await found.textContent()) ?? '').trim();
+      await lookOnly(() => list.selectOption({ label }, { timeout: 6000 }));
+      return `Chose ${label}`;
+    }
+    await lookOnly(() => found.click({ timeout: 15000 }).catch(orSay(`"${words(action.click)}" could not be clicked in 15 seconds: something on the page is in front of it, or it is switched off.`)));
     return `Clicked ${words(action.click)}`;
   }
   if ('choose' in action) {
@@ -457,12 +496,13 @@ async function act(action, base) {
     await guard(found);
     await page.waitForTimeout(500);
     await clear();
-    if ((await found.evaluate((el) => el.tagName)) === 'SELECT') await found.selectOption({ label: action.choose });
-    else {
-      await found.click({ timeout: 15000 });
+    // picking only changes what is shown: a list that sends anything but a read when it is picked from is stopped, as a click is
+    await lookOnly(async () => {
+      if ((await found.evaluate((el) => el.tagName)) === 'SELECT') return found.selectOption({ label: action.choose }, { timeout: 6000 }).catch(orSay(`"${action.choose}" is not one of the choices of ${words(action.from)}.`));
+      await found.click({ timeout: 15000 }).catch(orSay(`${words(action.from)} could not be opened in 15 seconds: something on the page is in front of it, or it is switched off.`));
       const pick = page.getByRole('option', { name: action.choose }).or(page.getByRole('menuitem', { name: action.choose })).first();
-      await pick.click({ timeout: 15000 });
-    }
+      await pick.click({ timeout: 15000 }).catch(orSay(`"${action.choose}" did not show among the choices of ${words(action.from)}.`));
+    });
     return `Chose ${action.choose}`;
   }
   if ('fill' in action) {
@@ -514,7 +554,7 @@ async function act(action, base) {
     return 'Closed it';
   }
   if ('wait' in action) {
-    if (!(await until(action.wait, 20000))) throw new Error('The page did not get to the expected state');
+    if (!(await until(action.wait, 20000))) throw new Error(`The page did not get there in 20 seconds: it waited for ${expected(action.wait)}.`);
     return 'The page is ready';
   }
   throw new Error(`Unknown action ${JSON.stringify(action)}`);
@@ -523,13 +563,14 @@ async function act(action, base) {
 // ---- the bar on the page ------------------------------------------------------------------------
 // In the tab the guide drives: the line being said, as text, and a box to ask in. It only shows and
 // listens. What its buttons and keys mean is decided by the session that started the bridge: the bar
-// tells it "next", "back", "ask" and so on, and draws whatever state it is handed.
+// tells it "next", "back", "ask" and so on, and draws whatever state it is handed. A state may carry
+// a list to pick from (the steps of the walk, or the walks there are), behind one button.
 
 /** what the bar shows now, kept so it can be put back when the page loads again */
 let barState = null;
 /** what the page said, waiting for a bridge that listens on a port (over stdio it is written out at once) */
 const pageEvents = [];
-const KINDS = ['ask', 'askopen', 'askclose', 'next', 'back', 'auto', 'sound'];
+const KINDS = ['ask', 'askopen', 'askclose', 'next', 'back', 'auto', 'sound', 'goto', 'walk', 'stop'];
 
 function heard(said) {
   let event;
@@ -539,7 +580,13 @@ function heard(said) {
     return;
   }
   if (!KINDS.includes(event?.kind)) return;
-  event = { kind: event.kind, ...(event.kind === 'ask' ? { text: String(event.text ?? '').slice(0, 2000) } : {}) };
+  event = {
+    kind: event.kind,
+    ...(event.kind === 'ask' ? { text: String(event.text ?? '').slice(0, 2000) } : {}),
+    // picked from the bar's list: a step of the walk by its place, or a walk by its name
+    ...(event.kind === 'goto' && Number.isInteger(event.n) ? { n: event.n } : {}),
+    ...(event.kind === 'walk' ? { name: String(event.name ?? '').slice(0, 80) } : {}),
+  };
   // the log says that something was asked, not what
   record({ fromPage: event.kind });
   if (overStdio) console.log(JSON.stringify({ event }));
@@ -569,7 +616,8 @@ function barInPage(state) {
     const host = el('div');
     host.id = 'wag-bar';
     host.style.cssText = 'all:initial;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);width:min(940px,calc(100vw - 32px));z-index:2147483647;pointer-events:auto';
-    const root = host.attachShadow({ mode: 'open' });
+    // closed, so that the guide's own looking and clicking on the page never lands on the bar's words
+    const root = host.attachShadow({ mode: 'closed' });
     // a sheet made in script, so a page that allows no inline styles still shows the bar
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(`
@@ -579,6 +627,9 @@ function barInPage(state) {
       .head .mark{margin-left:auto;color:#fbbf24;font-weight:700}
       .asked{font-size:14px;color:#cbd5e1;margin:2px 0}
       .words{white-space:pre-wrap;max-height:9.5em;overflow:auto}
+      .list{display:grid;gap:2px;max-height:14.5em;overflow:auto;margin-top:8px;padding-top:6px;border-top:1px solid #334155}
+      .list button{text-align:left;background:transparent;font-weight:500;padding:7px 8px}
+      .list button.now{background:#1e293b;color:#7dd3fc}
       form{display:flex;gap:8px;margin-top:10px}
       input{flex:1;min-width:0;font:inherit;color:#f8fafc;background:#020617;border:1px solid #475569;border-radius:8px;padding:7px 11px}
       input:focus{outline:2px solid #38bdf8;outline-offset:1px}
@@ -598,6 +649,9 @@ function barInPage(state) {
     const asked = el('div', 'asked');
     const words = el('div', 'words');
     words.setAttribute('role', 'status');
+    const list = el('div', 'list');
+    list.hidden = true;
+    let listed = '';
     const form = el('form');
     const box = el('input');
     box.type = 'text';
@@ -619,8 +673,9 @@ function barInPage(state) {
     const next = button('next', 'Next (F8)');
     const ask = button('ask', 'Ask (F2)');
     const auto = button('auto', 'Auto');
+    const menu = button('menu', '');
     const sound = button('sound', 'Sound');
-    wrap.append(head, asked, words, form, row);
+    wrap.append(head, asked, words, list, form, row);
     root.append(wrap);
 
     const tell = (kind, more) => window.__wagTell?.(JSON.stringify({ kind, ...more }));
@@ -655,10 +710,15 @@ function barInPage(state) {
     const onClick = (event) => {
       if (!inBar(event)) return;
       event.stopPropagation();
-      const pressed = event.composedPath().find((node) => node instanceof HTMLElement && node.dataset.does);
+      // the bar's insides are not in the event's path out here, so what was pressed is looked up: under the pointer, or where the keyboard is
+      const at = event.detail === 0 ? root.activeElement : root.elementFromPoint(event.clientX, event.clientY);
+      const pressed = at?.closest?.('[data-does]');
       if (!pressed || pressed.disabled) return;
-      if (pressed.dataset.does === 'ask') asking(form.hidden);
-      else tell(pressed.dataset.does);
+      const does = pressed.dataset.does;
+      if (does === 'menu') return void (list.hidden = !list.hidden);
+      list.hidden = true;
+      if (does === 'ask') asking(form.hidden);
+      else tell(does, { n: pressed.dataset.n === undefined ? undefined : Number(pressed.dataset.n), name: pressed.dataset.name });
     };
     // a submit does not leave the bar's own tree, so the page never sees it
     form.addEventListener('submit', (event) => {
@@ -687,6 +747,7 @@ function barInPage(state) {
     placing = setInterval(place, 500);
     bar = window.__wagBar = {
       host,
+      root,
       off() {
         clearInterval(placing);
         removeEventListener('keydown', onKey, true);
@@ -713,6 +774,25 @@ function barInPage(state) {
         sound.setAttribute('aria-pressed', String(s.sound !== false));
         ask.disabled = busy;
         if (busy && !form.hidden) form.hidden = true;
+        // the list behind its button: made again only when it has changed, so it keeps its place while open
+        const items = s.menu?.items ?? [];
+        menu.hidden = !items.length;
+        menu.textContent = s.menu?.label ?? '';
+        menu.disabled = busy;
+        if (busy || !items.length) list.hidden = true;
+        if (JSON.stringify(items) !== listed) {
+          listed = JSON.stringify(items);
+          list.replaceChildren(
+            ...items.map((item) => {
+              const b = el('button', item.now ? 'now' : '', item.label);
+              b.type = 'button';
+              b.dataset.does = item.kind;
+              if (item.n !== undefined) b.dataset.n = String(item.n);
+              if (item.name) b.dataset.name = item.name;
+              return b;
+            }),
+          );
+        }
       },
     };
   }
@@ -970,7 +1050,7 @@ const commands = {
   async read({ target, most }) {
     // with no target: the open dialog if there is one, since that is what the viewer is looking at; otherwise the page
     const dialog = page.locator('[role="dialog"], dialog[open]').locator('visible=true').last();
-    const found = target ? locate(target) : (await dialog.count()) ? dialog : page.locator('main').first();
+    const found = target ? locate(target) : (await dialog.count()) ? dialog : (await page.locator('main').count()) ? page.locator('main').first() : page.locator('body');
     return { text: brief(await found.innerText({ timeout: 4000 }), most) };
   },
   async highlight({ target, note }) {
@@ -985,6 +1065,18 @@ const commands = {
     return { did: await act({ click: target }), ...(await whereNow()) };
   },
   async choose({ option, from }) {
+    const how = 'choose "<the choice>" --from "role=combobox:<the label of the list>"';
+    if (!option) throw new Error(`Say what to pick: ${how}.`);
+    if (!from) {
+      // no list was named: the one list on the page that has that choice, if there is just one
+      const list = await listWith(option);
+      const count = list.count;
+      if (list.from) [option, from] = [list.label, list.from];
+      else {
+        const names = await page.getByRole('combobox').locator('visible=true').evaluateAll((all) => all.map((el) => el.getAttribute('aria-label') ?? el.labels?.[0]?.innerText ?? '').filter(Boolean).slice(0, 12));
+        throw new Error(`${count ? `${count} lists here have "${option}"` : `It is not clear which list "${option}" is in`}. Say which: ${how}.${names.length ? ` The lists on the page: ${names.join(', ')}.` : ''}`);
+      }
+    }
     return { did: await act({ choose: option, from }), ...(await whereNow()) };
   },
   async close() {
@@ -1108,10 +1200,12 @@ const routes = {
         return { ok: false, done, refused: error instanceof Refused, why: error.message.split('\n')[0], sent };
       }
     }),
-  turn: ({ live, app, again }) =>
+  turn: ({ live, app, again, peek }) =>
     inTurn(async () => {
       await tab();
       try {
+        // a rehearsal only asks whether the page is already there: nothing is rung and nothing is waited for
+        if (peek) return { ok: true, reached: !live.turn.until.file && (await holds(live.turn.until)) };
         // the ring goes up once; asking again only keeps waiting
         if (!again) {
           // already there, because the guide did it or the viewer was ahead: nothing to ring or wait for

@@ -12,8 +12,10 @@
 //   guide check '<json list of checks>'
 //   guide record start   |   guide record stop      (a video, subtitles and a written walkthrough of the session)
 //   guide say "One or two sentences."      (shown as text and spoken)      guide heard "what the person asked"
+//   guide say "It is this figure." --point "412.50" --note "The amount"       (rings that part of the page, then says it: one command)
 //   guide open "what was asked, in your words" --why "the pages do not show it"     (kept in the session's list for later)
 //   guide walk start <deck>   |   guide walk next   |   guide walk back   |   guide walk stop     (a deck's steps played on the page)
+//   guide walk goto 7   |   guide walk goto "words from a step's title"   |   guide walk list     (jump to a step; the walks and steps there are)
 // A target is the words on the page. Forms: "css=#id", "role=button:Name". --in dialog narrows it; --last takes the last match.
 // It talks to scripts/session.mjs, which passes commands on to the bridge. GUIDE_SESSION is its address
 // (default http://127.0.0.1:5191) and GUIDE_KEY_FILE where it wrote its key (default ~/.cache/wag/bridge.token).
@@ -66,12 +68,15 @@ if (cmd === 'record') {
 } else if (cmd === 'open' || cmd === 'walk') {
   // open: something for the person to follow up later. walk: step a deck's walk on the page.
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
-  const body = cmd === 'open' ? { text: words.join(' '), why: flags.why } : { go: words[0] ?? 'next', deck: words[1] };
+  const body = cmd === 'open' ? { text: words.join(' '), why: flags.why } : { go: words[0] ?? 'next', deck: words[1], to: words.slice(1).join(' ') || undefined };
   answer = await fetch(`${session}/${cmd}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify(body) }).then((r) => (r.ok ? r.json() : { ok: false, why: `session answered ${r.status}` }), () => ({ ok: false, why: 'the session console is not running' }));
 } else if (cmd === 'say' || cmd === 'heard') {
   // the talking half of the session: say shows the line and speaks it, heard notes what the person asked
   const session = process.env.GUIDE_SESSION ?? 'http://127.0.0.1:5191';
+  // say --point: ring that part of the page first, so pointing and answering are one command
+  const pointed = cmd === 'say' && typeof flags.point === 'string' ? await post('cmd', { cmd: 'highlight', target: target(flags.point), note: typeof flags.note === 'string' ? flags.note : undefined }) : null;
   answer = await fetch(`${session}/${cmd}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wag-Key': key }, body: JSON.stringify({ text: words.join(' ') }) }).then((r) => (r.ok ? r.json() : { ok: false, why: `session answered ${r.status}` }), () => ({ ok: false, why: 'the session console is not running' }));
+  if (pointed && !pointed.ok) answer.pointed = `It was said, but not pointed at: ${pointed.why}`;
 } else if (cmd === 'turn') {
   // ring it, say what the click does, and wait for the viewer: for a page state, or for a file they download
   const until = { url: flags.url, see: flags.see ? target(flags.see) : undefined, file: flags.file ? { like: flags.file, as: flags.as ?? 'download' } : undefined };

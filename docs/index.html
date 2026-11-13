@@ -75,6 +75,7 @@ main section { padding-top: 24px; }
 main h2 { font-size: 34px; letter-spacing: -.025em; margin: 40px 0 14px; line-height: 1.2; }
 main h2 .k { font: 600 13px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--sky); display: block; margin-bottom: 6px; }
 main h3 { font-size: 21px; margin: 34px 0 8px; letter-spacing: -.01em; }
+main h4 { font-size: 17px; margin: 26px 0 6px; }
 main p, main li { color: #cbd5e1; }
 main strong { color: var(--ink); }
 main ul { padding-left: 22px; }
@@ -520,12 +521,30 @@ guide say "This is the amount the entry has to move."</code></pre>
     <tr><td><kbd>F8</kbd>, <strong>Next</strong></td><td>The next step. After a question it is <strong>Continue</strong>: the page goes back to the step, and the walk carries on from there</td></tr>
     <tr><td><kbd>F2</kbd>, <strong>Ask</strong></td><td>Opens a box to type a question in. The walk pauses. <kbd>Esc</kbd> shuts the box</td></tr>
     <tr><td><strong>Back</strong>, <strong>Auto</strong>, <strong>Sound</strong></td><td>The step before; steps that go on by themselves; the voice on or off</td></tr>
+    <tr><td><strong>Steps</strong></td><td>A list of the walk's steps, to jump to any of them. Dialogs are shut and the page is made ready first: the Show me of every step since the last one that opens a page is done again, without its words. If one of those is your own click and the page is not past it, the walk lands there</td></tr>
+    <tr><td><strong>Walks</strong></td><td>With nothing playing: the walks this session has, to start one</td></tr>
   </table>
   <p>The answer shows in the bar and is spoken, and the guide rings the cell or row it means. To look something up it may open things on the page, under the same rules as Show me. What it could not answer from the page, and anything it would not do, is kept in <code>open-questions.md</code> in the session folder. Nothing typed or pressed in the bar reaches the page: a dialog that holds the keyboard stays as it is.</p>
   <pre><code class="sh">npm run make my-deck &amp;&amp; npm run build
 node scripts/session.mjs --deck dist --walk my-deck --ask scripts/ask.sh \
   --bridge "node scripts/live.mjs --stdio"
-guide walk next   # the same as F8, from a terminal; also back, stop, start &lt;deck&gt;</code></pre>
+guide walk next   # the same as F8, from a terminal; also back, stop, start &lt;deck&gt;
+guide walk goto 4 # or words from a step's title; guide walk list shows the walks and steps</code></pre>
+  <h4>The bar with nothing playing</h4>
+  <p>Start the session with <code>--bar &lt;address&gt;</code> and the bar is up from the start, on that page, with no walk playing. It is for a meeting where the questions are not known beforehand. <kbd>F2</kbd> asks; the guide goes to the page that answers, rings what it means, and the page stays there. Nothing is paused and there is nothing to continue. Ask for a walk in words, or pick it from <strong>Walks</strong>; <strong>End this walk</strong> in the Steps list comes back to the bar with nothing playing. Add <code>--walk</code> as well to begin with a walk.</p>
+  <pre><code class="sh">node scripts/session.mjs --deck dist --bar /app.html --ask scripts/ask.sh \
+  --bridge "node scripts/live.mjs --stdio --live --app http://127.0.0.1:5173/guide"</code></pre>
+  <h4>Rehearse before you show it</h4>
+  <p><code>--rehearse &lt;deck&gt;</code> plays every step of a walk with nobody watching: no voice, no bar, no waiting. Each Show me is done and each Check is read. A step's own click is never pressed: the rehearsal looks whether its button is there and leaves that step's check unread. It prints one line a step, writes the detail to <code>rehearsal.md</code> in the session folder, and ends with 1 if a step did not work.</p>
+  <pre><code>  1. words only        0 s  A deck that drives the page
+  2. works           0.8 s  Open the page
+  3. works           0.6 s  Pick the month
+  4. failed            6 s  Open item 1
+       "A row that is not there" did not show on the page within 6 seconds.
+  5. failed            6 s  Download the correcting entry
+       "Correcting entry" did not show on the page in the dialog within 6 seconds.
+       this may only be because step 4 before it did not work
+Rehearsal of "A guided deck": 2 of 6 steps work, 1 with words only, 3 that did not work.</code></pre>
 </section>
 
 <section id="ask">

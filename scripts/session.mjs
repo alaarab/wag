@@ -15,7 +15,9 @@
 // JSON object of written form to spoken form), --label TEXT (shown on the console, such as
 // "PRIVATE: production data"), --deck DIR (a built deck to serve, so its buttons work in this session),
 // --ask COMMAND (what answers a question typed in the deck's Ask box or on the console: see "questions"),
-// --walk NAME (play that deck's steps on the page itself, with a bar there to step and to ask: see "the walk").
+// --walk NAME (play that deck's steps on the page itself, with a bar there to step and to ask: see "the walk"),
+// --bar ADDRESS (the bar from the start with no walk running, to ask about any page and to pick a walk from),
+// --rehearse NAME (play that deck's steps with nobody watching and say which ones work: see "rehearsal").
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -39,6 +41,9 @@ const label = option('label', '');
 const deckDir = option('deck') ? resolve(option('deck')) : null;
 const askCommand = option('ask');
 const walkName = option('walk');
+// the bar with nothing playing, on this page to begin with: a whole address, or a path under the bridge's --app
+const floorAt = option('bar');
+const rehearseName = option('rehearse');
 // one session to a port: a second start must not take the first one's key file or start a second bridge
 await new Promise((free, taken) => {
   const probe = http.createServer().once('error', taken).once('listening', () => probe.close(free)).listen(port, '127.0.0.1');
@@ -69,7 +74,9 @@ if (bridgeCommand) {
     }
     if (said.ready) {
       bridgeReady = true;
-      if (walkName) void startWalk(walkName).then((started) => started.ok || console.log(`The walk did not start: ${started.why}`));
+      if (rehearseName) void rehearse(rehearseName);
+      else if (walkName) void startWalk(walkName).then((started) => started.ok || console.log(`The walk did not start: ${started.why}`));
+      else if (floorAt) void floor({ go: true });
     }
     // something pressed or asked in the bar on the page
     if (said.event) return void onPage(said.event).catch((error) => console.log(`The bar: ${error.message.split('\n')[0]}`));
@@ -269,7 +276,9 @@ async function sayLine(text, { caption = true } = {}) {
 // (F2). The bar only reports what was pressed; what that means is decided here. --walk plays a deck's
 // steps on that page: each step's lines are shown and spoken, its Show me is done, its My turn is
 // waited for and its Check is read out, and then it waits for Next (F8) unless Auto is on. Asking
-// pauses it. Continue (F8 again) puts the page back on the step and carries on from there.
+// pauses it. Continue (F8 again) puts the page back on the step and carries on from there. The bar's
+// Steps list jumps to any step. --bar puts the bar up with no walk running: a question asked then is
+// answered on whatever page shows the answer, the page stays there, and the bar's Walks list starts a walk.
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 /** what the bar shows, or null while the page has no bar */
@@ -327,13 +336,50 @@ function findWalk(name) {
   return null;
 }
 
+/** the walks this session can play: every built deck under --deck that has one */
+function walks() {
+  if (!deckDir) return [];
+  return readdirSync(deckDir, { withFileTypes: true }).flatMap((folder) => {
+    const file = join(deckDir, folder.name, 'walk.json');
+    if (!folder.isDirectory() || !existsSync(file)) return [];
+    const made = JSON.parse(readFileSync(file, 'utf8'));
+    return [{ name: made.deck, title: made.title, steps: made.steps.length }];
+  });
+}
+
+/** the list behind the bar's one extra button: the steps of the walk that is running, or the walks there are */
+const menu = () =>
+  walk
+    ? { label: 'Steps', items: [...walk.steps.map((step, n) => ({ label: `${n + 1}. ${step.title}`, kind: 'goto', n, now: n === walk.at })), ...(floorAt ? [{ label: 'End this walk', kind: 'stop' }] : [])] }
+    : { label: 'Walks', items: walks().map((made) => ({ label: `${made.title} (${made.steps} steps)`, kind: 'walk', name: made.name })) };
+
+/** nothing is playing and the session was started with --bar: there is nothing to pause, and no step to put the page back on */
+const free = () => Boolean(floorAt) && !walk;
+
+/** The bar with nothing playing: ask about any page, or pick a walk. */
+async function floor({ go = false } = {}) {
+  if (go) {
+    const there = await toBridge('cmd', { cmd: 'goto', to: floorAt });
+    if (!there?.ok) console.log(`The bar's first page did not open: ${there?.why}`);
+  }
+  paused = false;
+  question = '';
+  saidNow = [];
+  const list = menu();
+  await draw({ head: 'Guide', caption: `Ready. F2 to ask about any page.${list.items.length ? ' Walks lists the walkthroughs.' : ''}`, asked: '', mark: '', next: '', back: false, auto: undefined, busy: false, menu: list });
+  return { ok: true };
+}
+
 async function startWalk(name) {
-  const file = findWalk(name);
+  const file = name && findWalk(name);
   if (!file) return { ok: false, why: `No walk for "${name}". Run "npm run make ${name}", build, and start the session with --deck.` };
   const made = JSON.parse(readFileSync(file, 'utf8'));
   walk = { ...made, dir: dirname(file), at: 0, run: 0, auto: false, done: false, shown: -1, report: '', timer: null };
   paused = false;
   question = '';
+  saidNow = [];
+  place = null;
+  moved = { clicked: false, went: false };
   // the bar needs a tab the guide may act in: the first address the steps go to, in a tab of its own if need be
   const first = walk.steps.flatMap((step) => step.live?.show ?? []).find((action) => 'go' in action)?.go;
   if (first) {
@@ -354,9 +400,89 @@ async function stopWalk() {
   paused = false;
   question = '';
   await toBridge('cmd', { cmd: 'hush' });
+  await toBridge('cmd', { cmd: 'clear' });
+  // a session with the bar always up keeps it, for questions and for the next walk
+  if (floorAt) return floor();
   await toBridge('cmd', { cmd: 'bar', state: null });
   view = null;
   return { ok: true };
+}
+
+/** The step someone means: its number, its name, or words from its title or its lines. -1 when there is none. */
+function stepAt(to) {
+  const text = String(to ?? '').trim().toLowerCase();
+  if (!walk || !text) return -1;
+  if (/^\d+$/.test(text)) return Number(text) >= 1 && Number(text) <= walk.steps.length ? Number(text) - 1 : -1;
+  const ways = [(step) => step.name?.toLowerCase() === text, (step) => step.title.toLowerCase().includes(text), (step) => stepText(step).toLowerCase().includes(text)];
+  for (const fits of ways) {
+    const at = walk.steps.findIndex(fits);
+    if (at >= 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * Go straight to a step, from wherever the walk is. A step leans on the ones before it (a month
+ * picked, a dialog opened), so the page is made ready first: dialogs are shut, and the Show me of
+ * every step since the last one that opens a page is done again, without its words. If one of those
+ * steps is the viewer's own click and the page is not past it, the walk lands there instead.
+ */
+async function jump(at) {
+  if (!walk || !Number.isInteger(at) || at < 0 || at >= walk.steps.length) return { ok: false, why: 'There is no such step.' };
+  const run = ++walk.run;
+  const mine = () => walk && walk.run === run;
+  clearTimeout(walk.timer);
+  // the page is as the steps left it only if they were played in order and no answer has moved it since
+  const inOrder = walk.done && !paused && !question && !(moved.clicked || moved.went);
+  const was = walk.at;
+  paused = false;
+  question = '';
+  saidNow = [];
+  place = null;
+  moved = { clicked: false, went: false };
+  walk.moving = null;
+  walk.shown = -1;
+  const opens = (step) => Boolean(step.live?.show?.some((action) => 'go' in action));
+  let from = at;
+  // a step that is words only needs nothing from the page
+  if (walk.steps[at].live) while (from > 0 && !opens(walk.steps[from])) from--;
+  if (inOrder && was >= from && was < at) from = was + 1;
+  void (async () => {
+    await toBridge('cmd', { cmd: 'hush' });
+    await draw({ head: `${walk.title} \u00b7 going to step ${at + 1}`, caption: 'Getting the page ready for that step.', asked: '', mark: 'One moment', busy: true, next: '', back: false });
+    for (let i = 0, now = await toBridge('cmd', { cmd: 'where' }); i < 3 && mine() && now?.ok && now.dialog; i++) {
+      await toBridge('cmd', { cmd: 'close' });
+      now = await toBridge('cmd', { cmd: 'where' });
+    }
+    let land = at;
+    for (let n = from; n < at && mine(); n++) {
+      const live = walk.steps[n].live ?? {};
+      const did = live.show ? await toBridge('show', { live: { show: live.show }, app: walk.app }) : { ok: true };
+      if (!mine()) return;
+      const past = did?.ok && live.turn ? Boolean((await toBridge('turn', { live: { turn: live.turn }, app: walk.app, peek: true }))?.reached) : true;
+      if (!did?.ok || !past) {
+        land = n;
+        add({ who: 'note', text: did?.ok ? `Step ${at + 1} comes after your own click in step ${n + 1}, so the walk is at step ${n + 1}.` : `The page did not get ready for step ${at + 1}: step ${n + 1} did not work.` });
+        break;
+      }
+    }
+    if (mine()) void arrive(land);
+  })();
+  return { ok: true, at: at + 1, of: walk.steps.length, step: walk.steps[at].title };
+}
+
+/** What an answer asked for that waits until the answer has been said: starting a walk, or jumping to a step. */
+let after = null;
+async function thenGo(result) {
+  if (!after) return false;
+  const go = after;
+  after = null;
+  // long enough for the answer to be heard, or read when there is no sound
+  const seconds = (result?.said ?? []).reduce((sum, line) => sum + Math.max(line.seconds ?? 0, 2.5), 0);
+  await sleep(Math.min(9000, seconds * 1000 + 400));
+  const did = await go();
+  if (!did.ok && view) await draw({ caption: did.why, mark: '', busy: false });
+  return true;
 }
 
 /**
@@ -373,7 +499,7 @@ async function arrive(at, { again = false } = {}) {
   const text = stepText(step);
   const last = at === walk.steps.length - 1;
   await toBridge('cmd', { cmd: 'hush' });
-  await draw({ head: stepHead(), caption: text, asked: '', mark: '', back: at > 0, next: last ? '' : 'Next (F8)', auto: walk.auto, busy: false });
+  await draw({ head: stepHead(), caption: text, asked: '', mark: '', back: at > 0, next: last ? '' : 'Next (F8)', auto: walk.auto, busy: false, menu: menu() });
   add({ who: 'note', text: `Step ${at + 1} of ${walk.steps.length}: ${step.title}` });
   // the page moves while the line is said
   // noted when it lands, even if a question has cut the step short by then; said again, the step waits for that same move
@@ -433,6 +559,7 @@ async function arrive(at, { again = false } = {}) {
 /** Stop for a question: the voice, the timer and whatever the step was in the middle of. */
 async function pause() {
   if (paused) return;
+  if (free()) return void (await toBridge('cmd', { cmd: 'hush' }));
   paused = true;
   if (walk) clearTimeout(walk.timer);
   await toBridge('cmd', { cmd: 'hush' });
@@ -499,7 +626,7 @@ async function pageAsk(text) {
   if (answering || !text.trim()) return;
   await pause();
   // a follow-up keeps the place the first question was asked from
-  if (!question) {
+  if (!question && !free()) {
     moved = { clicked: false, went: false };
     const now = await toBridge('cmd', { cmd: 'where' });
     place = now?.ok ? { address: now.address, dialog: now.dialog ?? null } : null;
@@ -508,10 +635,18 @@ async function pageAsk(text) {
   await draw({ asked: text, caption: 'Looking at the page.', mark: 'Looking', busy: true, next: '' });
   const step = walk?.steps[walk.at];
   const where = step ? { deck: walk.title, slide: step.title, at: `step ${walk.at + 1} of ${walk.steps.length}`, line: stepText(step), report: walk.report || undefined } : {};
-  const result = await answer(text, { ...where, bar: true });
+  const result = await answer(text, { ...where, bar: true, free: free() });
   if (!result.ok) {
     await draw({ caption: `No answer this time: ${result.why}` });
     keep(`Asked: "${text}"`, `No answer came back: ${result.why}`);
+  }
+  // the answer started a walk or jumped to a step: that plays now, and there is nothing to continue
+  if (await thenGo(result)) return;
+  if (free()) {
+    // nothing was playing, so there is nothing to go back to: the page stays where the answer left it
+    question = '';
+    saidNow = [];
+    return void (await draw({ mark: '', busy: false, next: '' }));
   }
   await draw({ mark: 'Paused', busy: false, next: 'Continue (F8)' });
 }
@@ -520,7 +655,11 @@ async function onPage(event) {
   if (event.kind === 'ask') return pageAsk(event.text ?? '');
   if (event.kind === 'askopen') return pause();
   // the box was shut without a question: carry on
-  if (event.kind === 'askclose') return answering || question ? undefined : resume();
+  if (event.kind === 'askclose') return answering || question || free() ? undefined : resume();
+  // picked from the bar's list
+  if (event.kind === 'goto') return walk && !answering ? jump(event.n) : undefined;
+  if (event.kind === 'walk') return answering ? undefined : startWalk(event.name).then((started) => started.ok || draw({ caption: started.why }));
+  if (event.kind === 'stop') return answering ? undefined : stopWalk();
   if (event.kind === 'next') return onward();
   if (event.kind === 'back') return walk && !answering && !paused ? arrive(Math.max(0, walk.at - 1)) : undefined;
   if (event.kind === 'sound') {
@@ -562,15 +701,21 @@ const talkId = randomUUID();
 let questions = 0;
 let answering = false;
 
-const promptFor = (text, where = {}, page) =>
+const promptFor = (text, where = {}, page, shown) =>
   [
     where.deck && `The person is in the guided deck "${where.deck}", on "${where.slide}" (${where.at}).`,
     where.line && `The line said there: "${where.line}"`,
     where.words && `On the slide: ${where.words}`,
     where.buttons && `This step's buttons. ${where.buttons}`,
     where.report && `The last result shown to them: ${where.report}`,
-    where.bar && 'They asked from the bar on the page itself, with the walkthrough paused. Your guide say shows there. When they continue, the page is put back on the step, so you need not put it back.',
+    where.bar && !where.free && 'They asked from the bar on the page itself, with the walkthrough paused. Your guide say shows there. When they continue, the page is put back on the step, so you need not put it back.',
+    where.free && 'No walkthrough is playing. They asked from the bar on the page itself, and your guide say shows there. The page stays where you leave it: go to the page that answers them and point at what you mean.',
+    walk && `Only if they ask to go to another part of this walkthrough: guide walk goto <number>. Its steps: ${walk.steps.map((step, n) => `${n + 1}. ${step.title}`).join('; ')}.`,
+    !walk && walks().length && `Only if they ask for a walkthrough: guide walk start <name>. There are: ${walks().map((made) => `${made.name} (${made.title})`).join('; ')}.`,
+    (walk || walks().length) && 'A start or a jump plays once your guide say has been heard, so say in one sentence what is about to play.',
     page?.ok && `The page now: ${page.address}${page.dialog ? `, with the dialog "${page.dialog}" open` : ''}${page.viewerClicks?.length ? `. Their last clicks: ${page.viewerClicks.join('; ')}` : ''}.`,
+    // what the page says, read a moment ago, so that most questions need no looking first
+    shown?.ok && shown.text && `What ${page?.dialog ? 'the open dialog' : 'the page'} shows now:\n${shown.text}\n(That is the end of what it shows. guide find or guide read gets a part that was cut off.)`,
     `They ask: ${text}`,
   ]
     .filter(Boolean)
@@ -585,7 +730,9 @@ async function answer(text, where) {
   add({ who: 'you', text });
   const from = count;
   try {
-    const page = bridge ? await Promise.race([toBridge('cmd', { cmd: 'where' }), new Promise((done) => setTimeout(() => done(null), 4000))]) : null;
+    const soon = (asked, ms) => Promise.race([asked, new Promise((done) => setTimeout(() => done(null), ms))]);
+    const page = bridge ? await soon(toBridge('cmd', { cmd: 'where' }), 4000) : null;
+    const shown = page?.ok ? await soon(toBridge('cmd', { cmd: 'read', most: 4000 }), 4500) : null;
     const printed = await new Promise((done, fail) => {
       const env = { ...process.env, WAG_ASK_ID: talkId, WAG_ASK_N: String(++questions), GUIDE_SESSION: `http://127.0.0.1:${port}`, GUIDE_KEY_FILE: keyFile };
       const child = spawn('bash', ['-c', askCommand], { stdio: ['pipe', 'pipe', 'inherit'], env });
@@ -601,7 +748,7 @@ async function answer(text, where) {
         done(out.trim());
       });
       child.stdin.on('error', () => {});
-      child.stdin.end(promptFor(text, where, page));
+      child.stdin.end(promptFor(text, where, page, shown));
     });
     // what the guide said while it answered; if it only printed, that is the answer
     let said = lines.filter((line) => line.n > from && line.who === 'guide');
@@ -613,6 +760,85 @@ async function answer(text, where) {
   } finally {
     answering = false;
   }
+}
+
+// ---- rehearsal --------------------------------------------------------------------------------------
+// --rehearse NAME plays a walk's steps with nobody watching: no voice, no bar, no waiting for Next.
+// Each step's Show me is done and its Check is read. A step's own click is never pressed: the
+// rehearsal only looks whether its button is there, and leaves that step's check unread. It prints
+// which steps work, writes the same with more detail to rehearsal.md in the session folder, and
+// ends: with 0 when no step failed, with 1 when one did.
+
+async function rehearse(name) {
+  const file = name && findWalk(name);
+  if (!file) {
+    console.log(`Rehearsal: no walk called "${name}".`);
+    return stop(1);
+  }
+  const made = JSON.parse(readFileSync(file, 'utf8'));
+  const rows = [];
+  // the first step that did not work since a page was last opened: the steps after it lean on it
+  let broken = 0;
+  for (const [n, step] of made.steps.entries()) {
+    const began = Date.now();
+    const row = { n: n + 1, title: step.title, result: step.live ? 'works' : 'words only', notes: [], did: [] };
+    rows.push(row);
+    const live = step.live ?? {};
+    if (live.show?.some((action) => 'go' in action)) broken = 0;
+    if (live.show) {
+      const did = await toBridge('show', { live: { show: live.show }, app: made.app });
+      row.did = did?.done ?? [];
+      if (!did?.ok) {
+        row.result = did?.refused ? 'stopped' : 'failed';
+        row.notes.push(did?.why ?? 'no answer from the bridge');
+        const now = await toBridge('cmd', { cmd: 'where' });
+        if (now?.ok) row.notes.push(`the page was on ${now.address}${now.dialog ? `, with the dialog "${now.dialog}" open` : ''}`);
+      }
+    }
+    let clicked = true;
+    if (row.result === 'works' && live.turn) {
+      // the viewer's own click: only looked for. A page that is already where the click leads needs no click.
+      clicked = Boolean((await toBridge('turn', { live: { turn: live.turn }, app: made.app, peek: true }))?.reached);
+      if (!clicked) {
+        const there = live.turn.point ? await toBridge('cmd', { cmd: 'highlight', target: live.turn.point }) : { ok: true };
+        await toBridge('cmd', { cmd: 'clear' });
+        row.result = there?.ok ? 'your click' : 'failed';
+        row.notes.push(there?.ok ? `not pressed in a rehearsal: ${live.turn.says}` : `the button for your click is not there: ${there?.why ?? 'no answer'}`);
+      }
+    }
+    if (live.check && row.result === 'your click') row.notes.push('its check comes after your click, so it was not read');
+    if (live.check && row.result === 'works' && clicked) {
+      const read = await toBridge('check', { live: { check: live.check } });
+      for (const r of read?.results ?? []) {
+        if (r.skipped) row.notes.push(`${r.label}: left out, that part is not on this page`);
+        else if (r.ok) row.notes.push(`${r.label}: ${r.got}${r.want ? ` matches ${r.want}` : ''}`);
+        else {
+          row.result = 'check differs';
+          row.notes.push(`${r.label}: ${r.got}${r.want ? ` does not match ${r.want}` : ''}`);
+        }
+      }
+      if (!read?.ok) {
+        row.result = 'failed';
+        row.notes.push(`the check got no answer: ${read?.why ?? 'unknown'}`);
+      }
+    }
+    row.seconds = Math.round((Date.now() - began) / 100) / 10;
+    const bad = ['failed', 'stopped', 'check differs'].includes(row.result);
+    if (bad && broken) row.notes.push(`this may only be because step ${broken} before it did not work`);
+    if (bad && !broken) broken = row.n;
+    console.log(`${String(row.n).padStart(3)}. ${row.result.padEnd(13)} ${String(row.seconds).padStart(5)} s  ${row.title}${bad ? `\n       ${row.notes.join('\n       ')}` : ''}`);
+  }
+  await toBridge('cmd', { cmd: 'clear' });
+  const count = (result) => rows.filter((row) => row.result === result).length;
+  const bad = count('failed') + count('stopped') + count('check differs');
+  const sum = `${count('works')} of ${rows.length} steps work${count('words only') ? `, ${count('words only')} with words only` : ''}${count('your click') ? `, ${count('your click')} waiting for your own click` : ''}${bad ? `, ${bad} that did not work` : ''}.`;
+  console.log(`Rehearsal of "${made.title}": ${sum}`);
+  writeFileSync(
+    join(dir, 'rehearsal.md'),
+    `# Rehearsal: ${made.title}\n\n${new Date().toLocaleString('en-US')}. ${sum}\n\n${rows.map((row) => `## ${row.n}. ${row.title}: ${row.result} (${row.seconds} s)\n\n${[...row.notes.map((note) => `- ${note}`), ...row.did.map((did) => `- did: ${did}`)].join('\n')}\n`).join('\n')}`,
+  );
+  console.log(`In full: ${join(dir, 'rehearsal.md')}`);
+  stop(bad ? 1 : 0);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -648,10 +874,30 @@ const server = http.createServer(async (req, res) => {
       return json(got);
     }
     if (url.pathname === '/walk') {
-      const { go, deck } = JSON.parse(body || '{}');
-      if (go === 'start') return json(await startWalk(deck ?? walkName));
+      const { go, deck, to } = JSON.parse(body || '{}');
+      const steps = () => walk.steps.map((step, n) => `${n + 1}. ${step.title}`);
+      if (go === 'list') return json({ ok: true, walks: walks(), playing: walk ? { deck: walk.deck, at: walk.at + 1, steps: steps() } : null });
+      if (go === 'start') {
+        const name = deck ?? walkName;
+        if (!name || !findWalk(name)) return json({ ok: false, why: `No walk called "${name ?? ''}". There are: ${walks().map((made) => made.name).join(', ') || 'none'}.` });
+        // asked for in the middle of an answer: it plays once the answer has been said
+        if (answering) {
+          after = () => startWalk(name);
+          return json({ ok: true, when: 'once your answer has been said' });
+        }
+        return json(await startWalk(name));
+      }
       if (go === 'stop') return json(await stopWalk());
       if (!walk) return json({ ok: false, why: 'no walk is running' });
+      if (go === 'goto') {
+        const at = stepAt(to);
+        if (at < 0) return json({ ok: false, why: `No step like "${to ?? ''}". The steps: ${steps().join('; ')}` });
+        if (answering) {
+          after = () => jump(at);
+          return json({ ok: true, when: 'once your answer has been said', step: walk.steps[at].title });
+        }
+        return json(await jump(at));
+      }
       await onPage({ kind: go });
       return json({ ok: true, at: walk ? walk.at + 1 : null, of: walk?.steps.length, step: walk?.steps[walk.at]?.title, paused });
     }
@@ -666,7 +912,11 @@ const server = http.createServer(async (req, res) => {
       const line = await sayLine(text);
       return json({ ok: true, n: line.n, seconds: line.seconds ?? null });
     }
-    if (url.pathname === '/ask') return json(await answer(text, where));
+    if (url.pathname === '/ask') {
+      const result = await answer(text, where);
+      void thenGo(result);
+      return json(result);
+    }
   }
   if (url.pathname === '/ask') return json({ ok: true, can: Boolean(askCommand), busy: answering });
   if (deckDir && (url.pathname === '/' ? url.searchParams.has('deck') : !['/console', '/lines', '/events', '/mirror'].includes(url.pathname) && !url.pathname.startsWith('/audio/line-'))) {
@@ -706,11 +956,11 @@ const server = http.createServer(async (req, res) => {
   res.end();
 });
 server.listen(port, '127.0.0.1', () => console.log(`Session console: http://127.0.0.1:${port}/?key=${token}\nTranscript: ${join(dir, 'transcript.jsonl')}   Key file: ${keyFile}`));
-const stop = () => {
+function stop(code = 0) {
   voice?.kill();
   // closing its input is how the bridge is told to stop and tidy the page
   bridge?.stdin.end();
-  setTimeout(() => process.exit(0), 1500);
-};
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
+  setTimeout(() => process.exit(code), 1500);
+}
+process.on('SIGINT', () => stop(0));
+process.on('SIGTERM', () => stop(0));
