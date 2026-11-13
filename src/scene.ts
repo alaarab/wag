@@ -113,6 +113,28 @@ export interface ElementOptions extends StateProps {
   weight?: number;
   align?: 'left' | 'center' | 'right';
   valign?: 'top' | 'middle' | 'bottom';
+  /** letter spacing in ems: -0.03 pulls a headline together, 0.2 spaces out a label */
+  tracking?: number;
+  /** line height as a multiple of the font size (default 1.2) */
+  leading?: number;
+  /** set the text in capitals */
+  caps?: boolean;
+  italic?: boolean;
+  /**
+   * How text arrives: each word, or each letter, rises out of its own line one after another.
+   * It plays when the slide comes on going forwards, after the element's own `enter` delay.
+   */
+  reveal?: 'words' | 'letters';
+  /** a CSS gradient. On a box or an ellipse it lies over the fill; on text it colours the letters. It does not animate. */
+  gradient?: string;
+  /** a CSS box-shadow, for depth or a glow */
+  shadow?: string;
+  /** blur whatever is behind the element by this many pixels, for a pane of glass */
+  glass?: number;
+  /** decoration: it never takes the pointer, and an export leaves it out */
+  decor?: boolean;
+  /** scene: the words an export shows in its place, since a scene cannot run there */
+  alt?: string;
   stroke?: string;
   strokeWidth?: number;
   /** a colour laid over the rest of the slide, outside this element, to pick it out. It fades with the element. */
@@ -164,6 +186,16 @@ export interface Element {
   weight: number;
   align: 'left' | 'center' | 'right';
   valign: 'top' | 'middle' | 'bottom';
+  tracking?: number;
+  leading?: number;
+  caps: boolean;
+  italic: boolean;
+  reveal?: 'words' | 'letters';
+  gradient?: string;
+  shadow?: string;
+  glass?: number;
+  decor: boolean;
+  alt?: string;
   stroke?: string;
   strokeWidth: number;
   shade?: string;
@@ -350,6 +382,19 @@ export interface Slide {
   stagger: number;
 }
 
+/**
+ * How marked words look. Words between asterisks in any text, such as `Slides that *move*`, are
+ * set this way: a second typeface, a slant, a colour or a gradient.
+ */
+export interface Accent {
+  font?: string;
+  italic?: boolean;
+  weight?: number;
+  color?: string;
+  /** a CSS gradient that colours the letters */
+  gradient?: string;
+}
+
 export interface DeckOptions {
   /** shown in the player's bar and on the deck's handouts */
   title?: string;
@@ -371,6 +416,8 @@ export interface DeckOptions {
   height?: number;
   bg?: string;
   font?: string;
+  /** how words marked with asterisks are set: see `Accent` */
+  accent?: Accent;
   /** stylesheets to load with the deck, such as a web font's CSS */
   stylesheets?: string[];
   /** how slides arrive unless a slide says otherwise */
@@ -388,10 +435,42 @@ export interface Deck {
   height: number;
   bg: string;
   font: string;
+  accent: Accent;
   stylesheets: string[];
   transition: SlideTransition;
   motion: MotionConfig;
   slides: Slide[];
+}
+
+/**
+ * The typefaces that ship with wag. The player loads them itself, so a deck looks the same on any
+ * machine and in a recording. Each stack ends in fonts every system has, which is what an export
+ * to PowerPoint falls back on.
+ */
+export const FONTS = {
+  /** headlines: tight, heavy, with some character */
+  display: '"Bricolage Grotesque Variable", "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif',
+  /** running text and controls */
+  body: '"Geist Variable", Geist, Inter, "Segoe UI", system-ui, sans-serif',
+  /** marked words: an italic serif against the sans */
+  accent: '"Instrument Serif", Georgia, "Times New Roman", serif',
+  /** labels, figures in a column, code */
+  mono: '"Geist Mono Variable", "Geist Mono", ui-monospace, Consolas, monospace',
+};
+
+/** Text split at its marks: `Slides that *move*` is two parts, the second one marked. */
+export function marks(text: string): { text: string; em: boolean }[] {
+  const parts: { text: string; em: boolean }[] = [];
+  // a mark hugs its words, the way it does in Markdown, so a lone asterisk or `2 * 3` is left alone
+  const pattern = /\*(\S(?:[^*\n]*\S)?)\*/g;
+  let at = 0;
+  for (const found of text.matchAll(pattern)) {
+    if (found.index > at) parts.push({ text: text.slice(at, found.index), em: false });
+    parts.push({ text: found[1], em: true });
+    at = found.index + found[0].length;
+  }
+  if (at < text.length || !parts.length) parts.push({ text: text.slice(at), em: false });
+  return parts;
 }
 
 /** An element as written by a builder, before `slide()` gives it an id and wires its own states. */
@@ -431,6 +510,16 @@ function draft(kind: Kind, o: ElementOptions, defaults: Partial<Animatable>, ext
     weight: o.weight ?? 400,
     align: o.align ?? 'center',
     valign: o.valign ?? 'middle',
+    tracking: o.tracking,
+    leading: o.leading,
+    caps: o.caps ?? false,
+    italic: o.italic ?? false,
+    reveal: o.reveal,
+    gradient: o.gradient,
+    shadow: o.shadow,
+    glass: o.glass,
+    decor: o.decor ?? false,
+    alt: o.alt,
     stroke: o.stroke,
     strokeWidth: o.strokeWidth ?? (kind === 'path' ? 6 : o.stroke ? 2 : 0),
     shade: o.shade,
@@ -454,9 +543,9 @@ function draft(kind: Kind, o: ElementOptions, defaults: Partial<Animatable>, ext
 }
 
 /** A rectangle, optionally rounded and optionally holding centred text. */
-export const box = (o: ElementOptions): Draft => draft('box', o, { fill: '#334155' });
+export const box = (o: ElementOptions): Draft => draft('box', o, { fill: '#2a2740' });
 
-export const ellipse = (o: ElementOptions): Draft => draft('ellipse', o, { fill: '#334155' });
+export const ellipse = (o: ElementOptions): Draft => draft('ellipse', o, { fill: '#2a2740' });
 
 /** Text with no background, left aligned and top anchored unless told otherwise. */
 export const text = (content: string, o: ElementOptions): Draft =>
@@ -482,11 +571,11 @@ export const scene = (o: ElementOptions, setup: SceneSetup): Draft => draft('sce
 
 /** A box the viewer types into. What they type is kept as the answer called `name`. */
 export const field = (name: string, o: ElementOptions): Draft =>
-  draft('field', { align: 'left', ...o }, { fill: '#1e293b', radius: 14 }, { name });
+  draft('field', { align: 'left', ...o }, { fill: '#1a1826', radius: 14 }, { name });
 
 /** Pick one of `options`. The pick is kept as the answer called `name`; `fill` colours the chosen option. */
 export const choice = (name: string, options: string[], o: ElementOptions): Draft =>
-  draft('choice', { align: 'left', valign: 'top', ...o }, { fill: '#38bdf8', fontSize: 22 }, { name, options });
+  draft('choice', { align: 'left', valign: 'top', ...o }, { fill: '#8ab4ff', fontSize: 22 }, { name, options });
 
 export function slide(options: SlideOptions, drafts: Draft[]): Slide {
   const states: States = { ...options.states };
@@ -594,8 +683,9 @@ export function deck(options: DeckOptions, slides: Slide[]): Deck {
     app: options.app?.replace(/\/$/, ''),
     width: options.width ?? 1280,
     height: options.height ?? 720,
-    bg: options.bg ?? '#0f172a',
-    font: options.font ?? 'Inter, "Segoe UI", system-ui, sans-serif',
+    bg: options.bg ?? '#0b0a12',
+    font: options.font ?? FONTS.body,
+    accent: options.accent ?? { font: FONTS.accent, italic: true },
     stylesheets: options.stylesheets ?? [],
     transition: options.transition ?? 'fade',
     motion: options.motion ?? { type: 'spring', stiffness: 220, damping: 18 },

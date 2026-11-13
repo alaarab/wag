@@ -10,3 +10,5 @@ public/*/walk.json
 tests/.out
 # a pack keeps its sessions beside it
 examples/*/sessions
+# the guide command a live session writes beside its notes
+examples/*/notes/.bin

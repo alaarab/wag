@@ -10,7 +10,7 @@
 // scenes and working fields.
 import JSZip from 'jszip';
 import PptxGenJS from 'pptxgenjs';
-import { resolve, type Animatable, type Deck, type Element, type MotionConfig, type Slide, type SlideTransition } from './scene';
+import { marks, resolve, type Animatable, type Deck, type Element, type MotionConfig, type Slide, type SlideTransition } from './scene';
 
 const PX = 96; // deck pixels per inch
 const PT = 0.75; // points per deck pixel
@@ -126,6 +126,9 @@ function paint(css: string): { hex: string; alpha: number } {
 
 const percent = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 100);
 
+/** The first colour named in a CSS gradient. */
+const firstColour = (gradient?: string) => gradient?.match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/i)?.[0];
+
 function face(stack: string) {
   const families = stack.split(',').map((f) => f.trim().replace(/^["']|["']$/g, ''));
   return families.find((f) => WINDOWS_FONTS.includes(f)) ?? families[0];
@@ -223,20 +226,41 @@ function pathPoints(d: string, sx: number, sy: number): Point[] {
 
 /** Adds the element to the slide and returns the names of the shapes it became. */
 function draw(pptx: PptxGenJS, target: PptxGenJS.Slide, deck: Deck, wag: number, el: Element, a: Animatable): string[] {
+  // decoration is for the screen: a glow or a moving backdrop has nothing to be in PowerPoint
+  if (el.decor) return [];
   const name = shapeName(wag, el.id);
   const rect = rectOf(a);
   const box = { ...inches(rect), rotate: rotation(a), objectName: name };
-  const ink = paint(a.color);
+  // letters coloured by a gradient take its first colour, which is the nearest a slide's text can get
+  const ink = paint((el.kind === 'text' && firstColour(el.gradient)) || a.color);
+  const size = Math.max(1, a.fontSize * a.scale * PT);
   const type = {
     fontFace: face(el.font ?? deck.font),
-    fontSize: Math.max(1, a.fontSize * a.scale * PT),
+    fontSize: size,
     bold: el.weight >= 600,
+    italic: el.italic,
     color: ink.hex,
     transparency: percent(1 - ink.alpha * a.opacity),
     align: el.align,
     valign: el.valign,
     margin: 0,
+    ...(el.tracking ? { charSpacing: el.tracking * size } : {}),
+    ...(el.leading ? { lineSpacingMultiple: el.leading } : {}),
   };
+  // marked words become runs of their own, in the accent's face and colour
+  const accent = deck.accent;
+  const accentInk = firstColour(accent.gradient) ?? accent.color;
+  const said = (content: string) => (el.caps ? content.toUpperCase() : content);
+  const words = marks(el.text ?? '');
+  const runs =
+    words.length === 1 && !words[0].em
+      ? said(words[0].text)
+      : words.map((part) => ({
+          text: said(part.text),
+          options: part.em
+            ? { ...(accent.font ? { fontFace: face(accent.font) } : {}), italic: accent.italic ?? el.italic, bold: (accent.weight ?? (accent.font ? 400 : el.weight)) >= 600, ...(accentInk ? { color: paint(accentInk).hex } : {}) }
+            : {},
+        }));
   const fill = paint(a.fill);
   const filled = { color: fill.hex, transparency: percent(1 - fill.alpha * a.opacity) };
   const line = el.stroke ? { color: paint(el.stroke).hex, width: el.strokeWidth * PT } : undefined;
@@ -245,17 +269,18 @@ function draw(pptx: PptxGenJS, target: PptxGenJS.Slide, deck: Deck, wag: number,
 
   switch (el.kind) {
     case 'text':
-      target.addText(el.text ?? '', { ...box, ...type });
+      target.addText(runs, { ...box, ...type });
       return [name];
     case 'box':
-      target.addText(el.text ?? '', { ...box, ...type, ...rounded, fill: filled, line });
+      target.addText(runs, { ...box, ...type, ...rounded, fill: filled, line });
       return [name];
     case 'ellipse':
-      target.addText(el.text ?? '', { ...box, ...type, shape: pptx.ShapeType.ellipse, fill: filled, line });
+      target.addText(runs, { ...box, ...type, shape: pptx.ShapeType.ellipse, fill: filled, line });
       return [name];
     case 'scene':
-      // a live scene cannot run in PowerPoint, so it leaves its panel and a note
-      target.addText('Live scene: open the web version to see it', { ...box, ...type, ...rounded, fill: filled, fontSize: 14, bold: false, color: '94A3B8', transparency: 0, align: 'center', valign: 'middle' });
+      // a live scene cannot run in PowerPoint: it leaves its panel with the words it was given, or a note
+      if (el.alt) target.addText(el.alt, { ...box, ...type, ...rounded, fill: filled, align: 'center', valign: 'middle' });
+      else target.addText('Live scene: open the web version to see it', { ...box, ...type, ...rounded, fill: filled, fontSize: 14, bold: false, italic: false, color: '94A3B8', transparency: 0, align: 'center', valign: 'middle' });
       return [name];
     case 'video':
       target.addText('Video: open the web version to play it', { ...box, ...type, ...rounded, fill: { color: '1E293B' }, fontSize: 14, bold: false, color: '94A3B8', transparency: 0, align: 'center', valign: 'middle' });

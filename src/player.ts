@@ -3,7 +3,8 @@
 // work out the new target layout and spring each value towards it. Interrupted springs keep
 // their velocity, which is what makes hover feel alive.
 import { animate, createScopedAnimate, frame, mix, motionValue, type MotionValue } from 'motion';
-import { assetUrl, handoutFile, lineKey, resolve, spoken, type Animatable, type Answers, type Deck, type Download, type Element, type MotionConfig, type Slide } from './scene';
+import './fonts';
+import { assetUrl, handoutFile, lineKey, marks, resolve, spoken, type Animatable, type Answers, type Deck, type Download, type Element, type MotionConfig, type Slide } from './scene';
 
 const KEYS = ['x', 'y', 'w', 'h', 'rotate', 'scale', 'opacity', 'radius', 'fontSize', 'draw', 'fill', 'color'] as const satisfies readonly (keyof Animatable)[];
 
@@ -24,6 +25,8 @@ interface View {
   /** ends a scene that is running: stops its animations and empties it */
   leave: (() => void) | null;
   paint: () => void;
+  /** the moving part of each word or letter of text that has `reveal` */
+  rising: HTMLElement[];
 }
 
 interface Stage {
@@ -63,71 +66,74 @@ const ICON = {
   files: 'M12 4v11m0 0l-4-4m4 4l4-4M5 19h14',
 };
 const BAR_CSS = `
-.wag-bar{position:absolute;left:0;right:0;bottom:0;background:#020617;border-top:1px solid #1e293b;color:#e2e8f0;font:14px/1.3 Inter,"Segoe UI",system-ui,sans-serif;user-select:none}
+.wag-bar{position:absolute;left:0;right:0;bottom:0;background:#08070d;border-top:1px solid #1f1c2c;color:#e7e4f5;font:14px/1.3 "Geist Variable",Geist,Inter,"Segoe UI",system-ui,sans-serif;user-select:none}
 .wag-bar-row{display:flex;align-items:center;gap:6px;height:52px;padding:0 14px}
 .wag-bar button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:34px;min-width:34px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer}
 .wag-bar [hidden]{display:none!important}
 .wag-bar button:hover{background:rgba(148,163,184,.2)}
-.wag-bar button[aria-pressed=true]{background:#38bdf8;color:#0f172a}
+.wag-bar button[aria-pressed=true]{background:#8ab4ff;color:#0b0a12}
 .wag-bar button:disabled{opacity:.35;cursor:default;background:transparent}
 .wag-bar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .wag-bar svg.wag-solid{fill:currentColor;stroke:none}
-.wag-bar-count{min-width:54px;text-align:center;color:#94a3b8;font-variant-numeric:tabular-nums}
+.wag-bar-count{min-width:54px;text-align:center;color:#a8a2c2;font-variant-numeric:tabular-nums}
 .wag-bar-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;padding:0 8px}
-.wag-bar-line{display:none;padding:10px 18px 0;font-size:17px;line-height:1.4;color:#f8fafc;text-align:center}
-.wag-bar-files{display:none;position:absolute;right:14px;bottom:58px;min-width:280px;max-width:440px;padding:8px;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5)}
-.wag-bar-files a{display:block;padding:9px 12px;border-radius:8px;color:#e2e8f0;text-decoration:none}
+.wag-bar-line{display:none;padding:10px 18px 0;font-size:17px;line-height:1.4;color:#f6f4ff;text-align:center}
+.wag-bar-files{display:none;position:absolute;right:14px;bottom:58px;min-width:280px;max-width:440px;padding:8px;border-radius:12px;background:#14121e;border:1px solid #2e2a40;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.wag-bar-files a{display:block;padding:9px 12px;border-radius:8px;color:#e7e4f5;text-decoration:none}
 .wag-bar-files a:hover{background:rgba(148,163,184,.2)}
-.wag-bar-files small{display:block;padding:8px 12px 4px;color:#94a3b8}
-.wag-bar button.wag-live{background:#1e293b;padding:0 12px}
-.wag-bar button.wag-live:hover:not(:disabled){background:#334155}
-.wag-bar-live{display:none;position:absolute;left:14px;bottom:58px;width:min(620px,calc(100% - 28px));max-height:46vh;overflow:auto;padding:12px 14px;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45}
+.wag-bar-files small{display:block;padding:8px 12px 4px;color:#a8a2c2}
+.wag-bar button.wag-live{background:#1f1c2c;padding:0 12px}
+.wag-bar button.wag-live:hover:not(:disabled){background:#2e2a40}
+.wag-bar-live{display:none;position:absolute;left:14px;bottom:58px;width:min(620px,calc(100% - 28px));max-height:46vh;overflow:auto;padding:12px 14px;border-radius:12px;background:#14121e;border:1px solid #2e2a40;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45}
 .wag-bar-live b{display:block;margin-bottom:6px}
 .wag-bar-live div{padding:3px 0 3px 24px;position:relative}
 .wag-bar-live div::before{position:absolute;left:0;font-weight:700}
-.wag-bar-live .ok::before{content:"\\2713";color:#34d399}
-.wag-bar-live .no::before{content:"\\2717";color:#f87171}
-.wag-bar-live .wait::before{content:"\\2026";color:#fbbf24}
-.wag-bar-live .note{color:#94a3b8}
-.wag-bar-live small{color:#94a3b8}
-.wag-bar button.wag-ask{background:#1e293b;padding:0 12px}
-.wag-bar button.wag-ask:hover{background:#334155}
-.wag-bar button.wag-ask[aria-pressed=true]{background:#38bdf8;color:#0f172a}
-.wag-bar-ask{display:none;position:absolute;right:14px;bottom:58px;width:min(460px,calc(100% - 28px));max-height:56vh;flex-direction:column;border-radius:12px;background:#0f172a;border:1px solid #334155;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45;user-select:text}
+.wag-bar-live .ok::before{content:"\\2713";color:#6fe3b4}
+.wag-bar-live .no::before{content:"\\2717";color:#ff7a8a}
+.wag-bar-live .wait::before{content:"\\2026";color:#ffc46b}
+.wag-bar-live .note{color:#a8a2c2}
+.wag-bar-live small{color:#a8a2c2}
+.wag-bar button.wag-ask{background:#1f1c2c;padding:0 12px}
+.wag-bar button.wag-ask:hover{background:#2e2a40}
+.wag-bar button.wag-ask[aria-pressed=true]{background:#8ab4ff;color:#0b0a12}
+.wag-bar-ask{display:none;position:absolute;right:14px;bottom:58px;width:min(460px,calc(100% - 28px));max-height:56vh;flex-direction:column;border-radius:12px;background:#14121e;border:1px solid #2e2a40;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:15px;line-height:1.45;user-select:text}
 .wag-bar-ask-log{overflow:auto;padding:12px 14px 2px}
 .wag-bar-ask-log p{margin:0 0 10px}
-.wag-bar-ask-log .you{color:#94a3b8}
+.wag-bar-ask-log .you{color:#a8a2c2}
 .wag-bar-ask-log .you::before{content:"You: ";font-weight:600}
-.wag-bar-ask-log .note{color:#fbbf24}
-.wag-bar-ask form{display:flex;gap:8px;padding:10px;border-top:1px solid #1e293b}
-.wag-bar-ask input{flex:1;min-width:0;height:36px;padding:0 12px;border-radius:8px;border:1px solid #334155;background:#020617;color:#f8fafc;font:inherit}
-.wag-bar-ask input:focus{outline:2px solid #38bdf8;outline-offset:0}
-.wag-bar-ask form button,.wag-bar-ask form button:hover:not(:disabled){background:#38bdf8;color:#0f172a;padding:0 14px}
-.wag-bar button.wag-nav{padding:0 12px;background:#1e293b}
-.wag-bar button.wag-nav:hover{background:#334155}
+.wag-bar-ask-log .note{color:#ffc46b}
+.wag-bar-ask form{display:flex;gap:8px;padding:10px;border-top:1px solid #1f1c2c}
+.wag-bar-ask input{flex:1;min-width:0;height:36px;padding:0 12px;border-radius:8px;border:1px solid #2e2a40;background:#08070d;color:#f6f4ff;font:inherit}
+.wag-bar-ask input:focus{outline:2px solid #8ab4ff;outline-offset:0}
+.wag-bar-ask form button,.wag-bar-ask form button:hover:not(:disabled){background:#8ab4ff;color:#0b0a12;padding:0 14px}
+.wag-bar button.wag-nav{padding:0 12px;background:#1f1c2c}
+.wag-bar button.wag-nav:hover{background:#2e2a40}
 .wag-bar button.wag-counting{position:relative;overflow:hidden}
-.wag-bar button.wag-counting::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:0;background:#38bdf8;animation:wag-count var(--wait) linear forwards}
+.wag-bar button.wag-counting::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:0;background:#8ab4ff;animation:wag-count var(--wait) linear forwards}
 @keyframes wag-count{from{width:0}to{width:100%}}
 .wag-timeline{display:flex;gap:5px;align-items:center;height:20px;padding:6px 14px 0}
 .wag-tl-slide{display:flex;gap:2px;min-width:8px;height:16px;align-items:center}
-.wag-seg{flex:1 1 0;min-width:3px;height:8px;background:#334155;border-radius:3px;position:relative;overflow:hidden;cursor:pointer;transition:height .12s}
-.wag-seg:hover{height:14px;background:#64748b}
-.wag-seg.done{background:#0369a1}
-.wag-seg.now{height:14px;background:#334155;box-shadow:0 0 0 2px #38bdf8}
-.wag-seg i{position:absolute;left:0;top:0;bottom:0;width:0;background:#38bdf8}
+.wag-seg{flex:1 1 0;min-width:3px;height:8px;background:#2e2a40;border-radius:3px;position:relative;overflow:hidden;cursor:pointer;transition:height .12s}
+.wag-seg:hover{height:14px;background:#575170}
+.wag-seg.done{background:#56609c}
+.wag-seg.now{height:14px;background:#2e2a40;box-shadow:0 0 0 2px #8ab4ff}
+.wag-seg i{position:absolute;left:0;top:0;bottom:0;width:0;background:#8ab4ff}
 .wag-seg.done i{width:100%}
-.wag-time{min-width:92px;text-align:right;color:#94a3b8;font-variant-numeric:tabular-nums;font-size:13px}
-.wag-edge{position:absolute;width:56px;height:56px;margin-top:-28px;border:0;border-radius:50%;background:rgba(2,6,23,.6);color:#f8fafc;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;cursor:pointer;z-index:4}
+.wag-time{min-width:92px;text-align:right;color:#a8a2c2;font-variant-numeric:tabular-nums;font-size:13px}
+.wag-edge{position:absolute;width:56px;height:56px;margin-top:-28px;border:0;border-radius:50%;background:rgba(8,7,13,.6);color:#f6f4ff;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s;cursor:pointer;z-index:4}
 .wag-edge.on{opacity:1;pointer-events:auto}
-.wag-edge:hover{background:rgba(56,189,248,.9);color:#0f172a}
+.wag-edge:hover{background:rgba(138,180,255,.9);color:#0b0a12}
 .wag-edge svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
-.wag-hint{position:absolute;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:999px;background:rgba(2,6,23,.88);color:#e2e8f0;font:15px Inter,"Segoe UI",system-ui,sans-serif;white-space:nowrap;transition:opacity .4s;z-index:5;pointer-events:none}
-.wag-hint b{color:#38bdf8}
-.wag-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:10px;padding:16px 28px;border:0;border-radius:999px;background:#38bdf8;color:#0f172a;font:700 20px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.wag-hint{position:absolute;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:999px;background:rgba(8,7,13,.88);color:#e7e4f5;font:15px "Geist Variable",Geist,Inter,"Segoe UI",system-ui,sans-serif;white-space:nowrap;transition:opacity .4s;z-index:5;pointer-events:none}
+.wag-hint b{color:#8ab4ff}
+.wag-start{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;align-items:center;gap:10px;padding:16px 28px;border:0;border-radius:999px;background:#8ab4ff;color:#0b0a12;font:700 20px "Geist Variable",Geist,Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .wag-start svg{width:22px;height:22px;fill:currentColor}`;
 
 const FLEX = { left: 'flex-start', center: 'center', right: 'flex-end', top: 'flex-start', middle: 'center', bottom: 'flex-end' };
 const SVG = 'http://www.w3.org/2000/svg';
+
+/** Letters coloured by a gradient: the gradient is the background, and only the text lets it through. */
+const inked = (gradient: string) => ({ backgroundImage: gradient, backgroundClip: 'text', webkitBackgroundClip: 'text', color: 'transparent', webkitTextFillColor: 'transparent' });
 
 function motionOptions(t: MotionConfig) {
   return t.type === 'spring'
@@ -189,7 +195,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
 
   const style = document.createElement('style');
   style.textContent =
-    '.wag-field:focus-within{box-shadow:0 0 0 3px rgba(56,189,248,.55)}.wag-field input::placeholder{color:currentColor;opacity:.45}.wag-option{transition:background-color .2s,color .2s}';
+    '.wag-field:focus-within{box-shadow:0 0 0 3px rgba(138,180,255,.55)}.wag-field input::placeholder{color:currentColor;opacity:.45}.wag-option{transition:background-color .2s,color .2s}';
   frameEl.append(style);
 
   // answers gathered by fields, choices and scenes. Insertion order is the column order when saved.
@@ -861,10 +867,17 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     if (el.kind === 'field' && el.name) buildField(node, el, el.name);
     if (el.kind === 'choice' && el.name) buildChoice(node, el, el.name);
     if (el.font) node.style.fontFamily = el.font;
+    if (el.tracking !== undefined) node.style.letterSpacing = `${el.tracking}em`;
+    if (el.leading !== undefined) node.style.lineHeight = String(el.leading);
+    if (el.caps) node.style.textTransform = 'uppercase';
+    if (el.italic) node.style.fontStyle = 'italic';
     if (el.stroke && el.kind !== 'path') node.style.border = `${el.strokeWidth}px solid ${el.stroke}`;
     // one shadow with no blur and a spread wider than any slide: everything outside the element
-    if (el.shade) node.style.boxShadow = `0 0 0 4000px ${el.shade}`;
-    if (el.text !== undefined) node.textContent = el.text;
+    const shadows = [el.shadow, el.shade && `0 0 0 4000px ${el.shade}`].filter(Boolean);
+    if (shadows.length) node.style.boxShadow = shadows.join(', ');
+    if (el.glass) node.style.backdropFilter = `blur(${el.glass}px) saturate(1.3)`;
+    if (el.gradient && el.kind !== 'text' && el.kind !== 'path') node.style.backgroundImage = el.gradient;
+    const rising = el.text !== undefined ? writeText(node, el) : [];
     if (el.kind === 'image' && el.src) {
       const img = document.createElement('img');
       img.src = el.src;
@@ -899,7 +912,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     const values = Object.fromEntries(KEYS.map((k) => [k, motionValue(el.base[k])])) as unknown as Values;
     const loop = Object.fromEntries(LOOP_KEYS.map((k) => [k, motionValue(NEUTRAL[k])])) as Record<LoopKey, MotionValue<number>>;
     const drag = { x: motionValue(0), y: motionValue(0) };
-    const interactive = el.hover.length > 0 || el.press.length > 0 || el.click !== undefined || el.drag !== undefined || ['scene', 'field', 'choice'].includes(el.kind);
+    const interactive = !el.decor && (el.hover.length > 0 || el.press.length > 0 || el.click !== undefined || el.drag !== undefined || ['scene', 'field', 'choice'].includes(el.kind));
     const paint = () => {
       const v = <K extends keyof Animatable>(k: K) => values[k].get();
       const st = node.style;
@@ -926,7 +939,81 @@ export function mount(deck: Deck, root: HTMLElement): Player {
     const repaint = () => frame.render(paint);
     for (const mv of [...Object.values(values), ...Object.values(loop), drag.x, drag.y]) mv.on('change', repaint);
     paint();
-    return { el, node, values, loop, drag, playing: [], leave: null, paint };
+    return { el, node, values, loop, drag, playing: [], leave: null, paint, rising };
+  }
+
+  /**
+   * Put an element's words in it. Plain text stays plain. Marked words, a gradient or a reveal
+   * need spans, and those sit in one wrapper so the element still lays its text out as one block.
+   * Returns the parts that move when the text has `reveal`.
+   */
+  function writeText(node: HTMLElement, el: Element): HTMLElement[] {
+    const content = el.text ?? '';
+    const parts = marks(content);
+    const plain = parts.length === 1 && !parts[0].em;
+    const whole = el.kind === 'text' ? el.gradient : undefined;
+    if (plain && !el.reveal && !whole) {
+      node.textContent = content;
+      return [];
+    }
+    const block = document.createElement('span');
+    block.style.display = 'block';
+    const accent = deck.accent;
+    const mark = (span: HTMLElement) => {
+      if (accent.font) span.style.fontFamily = accent.font;
+      if (accent.italic) span.style.fontStyle = 'italic';
+      // a second face rarely has the weight of the first: without this the browser fakes a bold
+      span.style.fontWeight = String(accent.weight ?? (accent.font ? 400 : el.weight));
+      if (accent.font) span.style.letterSpacing = '-0.01em';
+      if (accent.gradient) Object.assign(span.style, inked(accent.gradient), { paddingRight: '0.08em' });
+      else if (accent.color) span.style.color = accent.color;
+    };
+    const rising: HTMLElement[] = [];
+    for (const part of parts) {
+      if (!el.reveal) {
+        const span = document.createElement('span');
+        span.textContent = part.text;
+        if (part.em) mark(span);
+        else if (whole) Object.assign(span.style, inked(whole));
+        block.append(span);
+        continue;
+      }
+      // words, with the spaces between them left as they are so lines still break there
+      for (const piece of part.text.split(/(\s+)/)) {
+        if (!piece) continue;
+        if (/^\s+$/.test(piece)) {
+          block.append(piece);
+          continue;
+        }
+        const word = document.createElement('span');
+        // the clip reaches a little past the letters, so descenders and a slanted last letter are not cut
+        Object.assign(word.style, { display: 'inline-block', overflow: 'hidden', verticalAlign: 'bottom', whiteSpace: 'nowrap', padding: '0.12em 0.08em 0.2em', margin: '-0.12em -0.08em -0.2em' });
+        // a marked word keeps together even letter by letter: its slant and its gradient run across the whole word
+        for (const unit of el.reveal === 'letters' && !part.em ? [...piece] : [piece]) {
+          const rise = document.createElement('span');
+          rise.textContent = unit;
+          rise.style.display = 'inline-block';
+          if (part.em) mark(rise);
+          else if (whole) Object.assign(rise.style, inked(whole));
+          word.append(rise);
+          rising.push(rise);
+        }
+        block.append(word);
+      }
+    }
+    node.append(block);
+    return rising;
+  }
+
+  /** Play a text's reveal from `delay` seconds, or leave it fully shown. */
+  function reveal(view: View, delay: number, play: boolean) {
+    if (!view.rising.length) return;
+    for (const rise of view.rising) rise.style.transform = play ? 'translateY(118%)' : '';
+    if (!play) return;
+    const gap = view.el.reveal === 'letters' ? 0.028 : 0.075;
+    view.rising.forEach((rise, i) => {
+      view.playing.push(animate(rise, { y: ['118%', '0%'] }, { duration: 0.95, ease: [0.16, 1, 0.3, 1], delay: delay + i * gap }));
+    });
   }
 
   function buildField(node: HTMLElement, el: Element, name: string) {
@@ -963,7 +1050,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
       for (const pill of pills) {
         const picked = pill.textContent === gathered.get(name);
         pill.style.backgroundColor = picked ? el.base.fill : 'rgba(148,163,184,0.2)';
-        pill.style.color = picked ? '#0f172a' : '';
+        pill.style.color = picked ? '#0b0a12' : '';
       }
     };
     answers.on((changed) => {
@@ -1173,11 +1260,15 @@ export function mount(deck: Deck, root: HTMLElement): Player {
         delay = (e.delay ?? 0) + stage.slide.stagger * order++;
       } else if (morphFrom) {
         start = { ...target, opacity: 0 };
+      } else if (el.reveal && !back) {
+        // a reveal with no entrance of its own still takes its turn in the slide's stagger
+        delay = stage.slide.stagger * order++;
       }
       for (const k of KEYS) value(view, k).jump(start[k]);
       view.drag.x.jump(0);
       view.drag.y.jump(0);
       startLoop(view);
+      reveal(view, delay, !back && !twin);
       startScene(view);
       const film = view.el.kind === 'video' ? view.node.querySelector('video') : null;
       if (film) {

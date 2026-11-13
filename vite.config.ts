@@ -58,7 +58,10 @@ export default defineConfig({
   resolve: { alias: { wag: join(here, 'src/index.ts') } },
   // fixed port so the links printed by `npm run new` are right
   // WAG_LIVE is where scripts/live.mjs listens, so a guided deck can drive a browser while it is being written
+  // 127.0.0.1 and not "localhost", which on some machines is only the IPv6 address: the bridge and
+  // the example pack reach the made-up page at 127.0.0.1, and a browser finds it under either name
   server: {
+    host: '127.0.0.1',
     port: 5179,
     strictPort: true,
     fs: { allow: [here, ...(home ? [home] : [])] },

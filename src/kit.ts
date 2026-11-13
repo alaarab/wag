@@ -1,26 +1,21 @@
 // Ready-made slides for walkthroughs. Each one is an ordinary slide made of the same boxes,
 // text and states as any other, so the player and the exporter need to know nothing about them.
+import { aurora } from './motion';
 import { box, deck, ellipse, image, path, slide, text, type Deck, type DeckOptions, type Download, type Expect, type LiveAction, type LiveCheck, type Slide, type SlideTransition, type StateProps, type Target } from './scene';
+import { dark, fade, look, type Theme } from './theme';
 
 type Drafts = Parameters<typeof slide>[1];
 
-export interface Theme {
-  bg: string;
-  ink: string;
-  dim: string;
-  panel: string;
-  accent: string;
-  /** known problems and causes */
-  warn: string;
-  bad: string;
-  good: string;
-}
-
-export const dark: Theme = { bg: '#0f172a', ink: '#f8fafc', dim: '#94a3b8', panel: '#1e293b', accent: '#38bdf8', warn: '#fbbf24', bad: '#f87171', good: '#34d399' };
-export const light: Theme = { bg: '#ffffff', ink: '#0f172a', dim: '#475569', panel: '#f1f5f9', accent: '#1d4ed8', warn: '#b45309', bad: '#b91c1c', good: '#15803d' };
-
 const W = 1280;
 const H = 720;
+
+type Options = Parameters<typeof text>[1];
+/** Small spaced capitals in the mono face: the line over a heading, the name over a card. */
+const label = (content: string, t: Theme, o: Options) => text(content, { font: t.mono, fontSize: 13, weight: 500, tracking: 0.16, caps: true, color: t.faint, ...o });
+/** A heading in the display face, pulled tight. */
+const heading = (content: string, t: Theme, o: Options) => text(content, { font: t.display, weight: 800, tracking: -0.03, leading: 1.04, color: t.ink, ...o });
+/** A card: the theme's panel with a hairline edge and some depth under it. */
+const card = (t: Theme, o: Parameters<typeof box>[0]) => box({ fill: t.panel, radius: 20, stroke: t.line, strokeWidth: 1, shadow: t.shadow, ...o });
 
 export interface StoryOptions {
   name?: string;
@@ -52,21 +47,25 @@ export function story(o: StoryOptions): Slide {
   const events = o.timeline ?? [];
   const rise = { dy: 24, opacity: 0 };
   const drafts: Drafts = [
-    text(o.title, { x: 64, y: 36, w: 1152, h: 50, fontSize: 38, weight: 700, color: t.ink, enter: rise }),
+    aurora({ theme: t, strength: 0.32 }),
+    heading(o.title, t, { x: 64, y: 34, w: 1152, h: 54, fontSize: 42, reveal: 'words' }),
   ];
-  if (o.sub) drafts.push(text(o.sub, { x: 64, y: 92, w: 1152, h: 30, fontSize: 20, color: t.dim, enter: rise }));
+  if (o.sub) drafts.push(text(o.sub, { x: 64, y: 94, w: 1152, h: 30, fontSize: 20, color: t.dim, enter: { ...rise, delay: 0.25 } }));
 
   if (events.length) {
     const slot = 1152 / events.length;
-    drafts.push(path('M0 2 L1152 2', { x: 64, y: 208, w: 1152, h: 4, color: t.dim, strokeWidth: 3, enter: { draw: 0 }, motion: { type: 'tween', duration: 0.9, ease: 'easeInOut' } }));
+    drafts.push(path('M0 2 L1152 2', { x: 64, y: 208, w: 1152, h: 4, color: fade(t.ink, 0.22), strokeWidth: 2, enter: { draw: 0 }, motion: { type: 'tween', duration: 0.9, ease: 'easeInOut' } }));
     events.forEach((event, i) => {
       const centre = 64 + slot * (i + 0.5);
-      const size = event.mark ? 26 : 16;
+      const size = event.mark ? 22 : 14;
+      const tone = event.mark ? t.warn : t.accent;
       const delay = 0.25 + i * 0.18;
+      // the turning point keeps sending out a ring
+      if (event.mark) drafts.push(ellipse({ x: centre - 11, y: 199, w: 22, h: 22, fill: 'rgba(0,0,0,0)', stroke: tone, strokeWidth: 2, decor: true, enter: { opacity: 0, delay: delay + 0.4 }, loop: { scale: [1, 2.6], opacity: [0.7, 0], duration: 1.8, mirror: false, ease: 'easeOut' } }));
       drafts.push(
-        ellipse({ x: centre - size / 2, y: 210 - size / 2, w: size, h: size, fill: event.mark ? t.warn : t.accent, enter: { scale: 0, delay } }),
-        text(event.when, { x: centre - slot / 2, y: 160, w: slot, h: 30, fontSize: 19, weight: 700, color: event.mark ? t.warn : t.ink, align: 'center', enter: { opacity: 0, delay } }),
-        text(event.what, { x: centre - slot / 2 + 10, y: 232, w: slot - 20, h: 66, fontSize: 16, color: t.dim, align: 'center', enter: { opacity: 0, delay } })
+        ellipse({ x: centre - size / 2, y: 210 - size / 2, w: size, h: size, fill: tone, shadow: `0 0 0 6px ${fade(tone, 0.16)}, 0 0 26px ${fade(tone, 0.55)}`, enter: { scale: 0, delay } }),
+        label(event.when, t, { x: centre - slot / 2, y: 162, w: slot, h: 26, fontSize: 14, color: event.mark ? t.warn : t.ink, align: 'center', enter: { opacity: 0, delay } }),
+        text(event.what, { x: centre - slot / 2 + 12, y: 234, w: slot - 24, h: 66, fontSize: 16, leading: 1.35, color: t.dim, align: 'center', enter: { opacity: 0, delay } })
       );
     });
   }
@@ -79,16 +78,16 @@ export function story(o: StoryOptions): Slide {
   [o.cause, o.effect, o.fix].forEach((body, i) => {
     const x = 64 + i * 400;
     const id = names[i];
-    states[id] = { [`${id}-bg`]: { opacity: 1, y: top }, [`${id}-bar`]: { opacity: 1, y: top }, [`${id}-label`]: { opacity: 1, y: top + 26 }, [`${id}-body`]: { opacity: 1, y: top + 64 } };
+    states[id] = { [`${id}-bg`]: { opacity: 1, y: top }, [`${id}-bar`]: { opacity: 1, y: top + 28 }, [`${id}-label`]: { opacity: 1, y: top + 22 }, [`${id}-body`]: { opacity: 1, y: top + 64 } };
     drafts.push(
-      box({ id: `${id}-bg`, x, y: top + 30, w: 352, h: height, radius: 16, fill: t.panel, opacity: 0 }),
-      box({ id: `${id}-bar`, x, y: top + 30, w: 352, h: 6, radius: 3, fill: tones[i], opacity: 0 }),
-      text(labels[i], { id: `${id}-label`, x: x + 24, y: top + 56, w: 304, h: 26, fontSize: 17, weight: 700, color: tones[i], opacity: 0 }),
-      text(body, { id: `${id}-body`, x: x + 24, y: top + 94, w: 304, h: height - 84, fontSize: 21, color: t.ink, opacity: 0 })
+      card(t, { id: `${id}-bg`, x, y: top + 30, w: 352, h: height, opacity: 0 }),
+      box({ id: `${id}-bar`, x: x + 24, y: top + 58, w: 10, h: 10, radius: 5, fill: tones[i], shadow: `0 0 14px ${fade(tones[i], 0.7)}`, opacity: 0 }),
+      label(labels[i], t, { id: `${id}-label`, x: x + 44, y: top + 52, w: 284, h: 24, color: tones[i], valign: 'middle', opacity: 0 }),
+      text(body, { id: `${id}-body`, x: x + 24, y: top + 94, w: 304, h: height - 84, fontSize: 21, leading: 1.32, color: t.ink, opacity: 0 })
     );
     if (i > 0) {
-      states[id][`${id}-arrow`] = { opacity: 1 };
-      drafts.push(text('→', { id: `${id}-arrow`, x: x - 48, y: top + height / 2 - 24, w: 48, h: 48, fontSize: 34, color: t.dim, align: 'center', valign: 'middle', opacity: 0 }));
+      states[id][`${id}-arrow`] = { opacity: 1, draw: 1 };
+      drafts.push(path('M4 12 L30 12 M21 3 L30 12 L21 21', { id: `${id}-arrow`, x: x - 41, y: top + height / 2 - 12, w: 34, h: 24, color: t.faint, strokeWidth: 2.5, opacity: 0, draw: 0 }));
     }
   });
 
@@ -216,20 +215,22 @@ export function shot(src: string, o: ShotOptions): Slide {
     states[steps[i]] = state;
 
     drafts.push(
-      box({ id: `ring-${i + 1}`, ...overview, radius: 8, fill: 'rgba(0,0,0,0)', stroke: tone, strokeWidth: 3, enter: { opacity: 0, scale: 1.3, delay: 0.3 + i * 0.12 } }),
-      ellipse({ id: `badge-${i + 1}`, ...clearOf(badgeAt(overview)), w: 32, h: 32, fill: tone, color: '#0f172a', fontSize: 17, weight: 800, text: String(i + 1), enter: { opacity: 0, scale: 0, delay: 0.3 + i * 0.12 } })
+      box({ id: `ring-${i + 1}`, ...overview, radius: 10, fill: 'rgba(0,0,0,0)', stroke: tone, strokeWidth: 3, shadow: `0 0 0 5px ${fade(tone, 0.16)}, 0 0 34px ${fade(tone, 0.4)}`, enter: { opacity: 0, scale: 1.3, delay: 0.3 + i * 0.12 } }),
+      ellipse({ id: `badge-${i + 1}`, ...clearOf(badgeAt(overview)), w: 32, h: 32, fill: tone, color: t.bg, font: t.mono, fontSize: 16, weight: 600, shadow: '0 6px 16px rgba(0,0,0,0.4)', text: String(i + 1), enter: { opacity: 0, scale: 0, delay: 0.3 + i * 0.12 } })
     );
   });
 
   drafts.push(
     box({ x: 0, y: 0, w: W, h: top, fill: t.bg }),
     box({ x: 0, y: H - bottom, w: W, h: bottom, fill: t.bg }),
-    text(o.title, { x: 32, y: 0, w: W - 64, h: top, fontSize: 26, weight: 700, color: t.ink, valign: 'middle' }),
+    box({ x: 0, y: top - 1, w: W, h: 1, fill: t.line }),
+    box({ x: 0, y: H - bottom, w: W, h: 1, fill: t.line }),
+    heading(o.title, t, { x: 32, y: 0, w: W - 64, h: top, fontSize: 27, weight: 700, tracking: -0.02, valign: 'middle' }),
     text(o.sub ?? '', { id: 'intro', x: 32, y: H - bottom, w: W - 64, h: bottom, fontSize: 20, color: t.dim, valign: 'middle' }),
-    box({ id: 'tag', x: W - 32 - 132, y: H - bottom + 16, w: 132, h: 32, radius: 16, fill: t.warn, color: '#0f172a', fontSize: 15, weight: 700, text: 'Known issue', opacity: 0 })
+    box({ id: 'tag', x: W - 32 - 138, y: H - bottom + 17, w: 138, h: 30, radius: 15, fill: fade(t.warn, 0.16), stroke: fade(t.warn, 0.5), strokeWidth: 1, color: t.warn, font: t.mono, fontSize: 12.5, weight: 500, tracking: 0.1, caps: true, text: 'Known issue', opacity: 0 })
   );
   o.callouts.forEach((c, i) => {
-    drafts.push(text(`${i + 1}.  ${c.label}`, { id: `label-${i + 1}`, x: 32, y: H - bottom, w: W - 64 - (c.issue ? 148 : 0), h: bottom, fontSize: 20, weight: 600, color: c.issue ? t.warn : t.ink, valign: 'middle', opacity: 0 }));
+    drafts.push(text(`${i + 1}.  ${c.label}`, { id: `label-${i + 1}`, x: 32, y: H - bottom, w: W - 64 - (c.issue ? 154 : 0), h: bottom, fontSize: 20, weight: 600, color: c.issue ? t.warn : t.ink, valign: 'middle', opacity: 0 }));
   });
 
   const opening = o.say ?? o.sub ?? o.title;
@@ -282,26 +283,35 @@ export interface GuideStep {
  */
 export function guide(options: DeckOptions & { theme?: Theme }, steps: GuideStep[]): Deck {
   const t = options.theme ?? dark;
-  const rise = { dy: 30, opacity: 0 };
+  const rise = { dy: 26, opacity: 0 };
   /** steps that do something on the page are numbered; an opening or closing slide is not */
   let number = 0;
+  const acting = steps.filter((s) => s.show || s.mine || s.download || s.check || s.demo).length;
   const slides = steps.map((s, i) => {
     const turn = s.download ? { point: s.download.point, says: s.download.says, until: { file: { like: s.download.file, as: s.download.as } } } : s.mine;
     const live = s.show || turn || s.check || s.demo ? { show: s.show, turn, check: s.check, demo: s.demo } : undefined;
-    const lines = [
-      ...(s.show ? ['Show me: the guide does this step on the page'] : []),
-      ...(turn ? [`My turn: ${turn.says}`] : []),
-      ...(s.check ? [`Check: ${s.check.map((c) => c.label).join('; ')}`] : []),
+    // each row: the button it goes with, a colour for it, and what pressing it does
+    const rows: [string, string, string][] = [
+      ...(s.show ? [['Show me', t.accent, 'the guide does this step on the page'] as [string, string, string]] : []),
+      ...(turn ? [['My turn', t.warn, turn.says] as [string, string, string]] : []),
+      ...(s.check ? [['Check', t.good, s.check.map((c) => c.label).join('; ')] as [string, string, string]] : []),
     ];
-    const title = live ? `${++number}. ${s.title}` : s.title;
+    const lines = rows.map(([name, , does]) => `${name}: ${does}`);
+    if (live) number++;
+    const title = live ? `${number}. ${s.title}` : s.title;
     return slide({ name: s.name ?? `step-${i + 1}`, title, bg: t.bg, stagger: 0.07, narration: s.say, live, handout: { intro: s.about ?? s.say, points: lines.map((line) => ({ text: line })) } }, [
-      text(title, { x: 80, y: 70, w: 1120, h: 70, fontSize: 46, weight: 800, color: t.ink, enter: rise }),
-      text(s.about ?? s.say, { x: 80, y: 156, w: 1080, h: 130, fontSize: 24, color: t.dim, enter: rise }),
-      ...lines.flatMap((line, n) => [
-        box({ x: 80, y: 310 + n * 100, w: 1120, h: 86, radius: 14, fill: t.panel, enter: rise }),
-        text(line, { x: 104, y: 310 + n * 100, w: 1072, h: 86, fontSize: 20, color: t.ink, valign: 'middle', enter: rise }),
+      aurora({ theme: t, strength: live ? 0.3 : 0.55 }),
+      // the step's number, large and faint, behind the corner
+      ...(live ? [text(String(number).padStart(2, '0'), { x: 880, y: -16, w: 340, h: 230, font: t.display, fontSize: 230, weight: 800, tracking: -0.05, leading: 1, color: fade(t.ink, 0.045), align: 'right', decor: true })] : []),
+      ...(live ? [label(`Step ${number} of ${acting}`, t, { x: 80, y: 62, w: 600, h: 22, enter: rise })] : []),
+      heading(s.title, t, { x: 80, y: live ? 92 : 78, w: 1000, h: 70, fontSize: 52, reveal: 'words' }),
+      text(s.about ?? s.say, { x: 80, y: live ? 172 : 162, w: 1040, h: 124, fontSize: 24, leading: 1.4, color: t.dim, enter: rise }),
+      ...rows.flatMap(([name, tone, does], n) => [
+        card(t, { x: 80, y: 316 + n * 96, w: 1120, h: 80, radius: 16, enter: rise }),
+        box({ x: 102, y: 316 + n * 96 + 25, w: 104, h: 30, radius: 15, fill: fade(tone, 0.14), stroke: fade(tone, 0.4), strokeWidth: 1, color: tone, font: t.mono, fontSize: 12.5, weight: 500, tracking: 0.08, caps: true, text: name, enter: rise }),
+        text(does, { x: 226, y: 316 + n * 96, w: 950, h: 80, fontSize: 20, leading: 1.3, color: t.ink, valign: 'middle', enter: rise }),
       ]),
     ]);
   });
-  return deck({ bg: t.bg, ...options }, slides);
+  return deck({ ...look(t), ...options }, slides);
 }
