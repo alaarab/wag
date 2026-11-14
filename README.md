@@ -1,10 +1,21 @@
-<p align="center"><img src="docs/img/hero.webp" alt="The demo deck playing: the wag name with its tail, three floating charts, figures counting up, code typing itself beside the box it makes, and a diagram with pulses running along its lines" width="880"></p>
-
 # wag
 
-**Slide decks written in code. They move, they talk, and they can walk someone through a real web page.**
+**Write a slide deck in code. It moves, it talks, and it can walk someone through a real web page.**
 
-A deck is one TypeScript file. The player animates it with [Motion](https://motion.dev) springs and reads it aloud in a voice that runs on your own machine. In guided mode it points at a live page in a browser you are already signed in to, and it never presses anything that saves.
+Think of the training nobody reads: a document full of screenshots saying "click here, then here". A wag deck does it on the real page instead. It opens the page, points at the button, says what it does, waits while the person clicks it, and checks that it worked. It never presses anything that saves.
+
+<p align="center"><img src="docs/img/walk-page.webp" alt="A guided walk on a made-up snack budget page, with a caption above each part: the bar along the bottom says each step, the deck opens the page and picks the month, rings the amount and checks it, answers a question typed into the bar, then rings Post entry, says the click is yours and waits, and the check says it posted" width="880"></p>
+
+| | |
+|---|---|
+| **Show me** | The deck does the step on the real page and points at what matters. |
+| **Ask** | Stuck? Type a question in the bar on the page. The answer points at the place. |
+| **My turn** | Anything that saves is the person's own click. The deck rings it, says what it does, and waits. |
+| **Check** | It reads the page, or the file that came down, and says whether the figures agree. |
+
+The same decks also play as ordinary slides, and those look like this. A deck is one TypeScript file; the player animates it with [Motion](https://motion.dev) springs and reads it aloud in a voice that runs on your own machine.
+
+<p align="center"><img src="docs/img/reel.webp" alt="The demo deck playing, with a line above each slide saying what it shows: the title, a film opening, a dog that answers the pointer, cards that open, points arriving one at a time, figures counting up, code beside what it makes, and one file played six ways" width="880"></p>
 
 <table><tr>
 <td width="33%"><img src="docs/img/numbers.webp" alt="A slide of figures: three counters, a bar chart with one bar picked out, a line chart and a ring at 72 percent"></td>

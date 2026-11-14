@@ -139,14 +139,17 @@ function add(entry) {
 
 const CONSOLE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title><link rel="icon" href="data:,">
 <style>
-body{margin:0;background:#0f172a;color:#f8fafc;font:17px/1.5 Inter,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
-header{display:flex;gap:12px;align-items:center;padding:10px 18px;background:#020617;border-bottom:1px solid #1e293b}
-header b{flex:1} .tag{background:#b45309;color:#fff;border-radius:999px;padding:2px 12px;font-size:14px;font-weight:600}
-button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:6px 14px;background:#1e293b;color:inherit;cursor:pointer} button[aria-pressed=true]{background:#38bdf8;color:#0f172a}
-main{flex:1;display:flex;min-height:0} #log{flex:1;overflow:auto;padding:18px} #mirror{display:none;flex:2;background:#020617;align-items:center;justify-content:center} #mirror img{max-width:100%;max-height:100%}
-#ask{display:none;gap:10px;padding:12px 18px;background:#020617;border-top:1px solid #1e293b} #ask input{flex:1;font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:inherit} #ask button{background:#38bdf8;color:#0f172a}
-.line{margin:0 0 14px;max-width:70ch} .who{font-size:13px;color:#94a3b8;display:block} .you{color:#cbd5e1} .guide.now{color:#38bdf8}
-#start{display:none;position:fixed;inset:0;margin:auto;width:260px;height:64px;font-size:20px;background:#38bdf8;color:#0f172a;border-radius:999px}
+body{margin:0;background:radial-gradient(60% 50% at 15% 0%,rgba(109,74,255,.14),transparent) #0b0a12;color:#f6f4ff;font:17px/1.55 "Geist Variable",Geist,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+header{display:flex;gap:12px;align-items:center;padding:12px 18px;background:rgba(8,7,13,.7);border-bottom:1px solid #272438}
+header b{flex:1;font:600 12px/1 "Geist Mono Variable","Geist Mono","Cascadia Mono",Consolas,monospace;letter-spacing:.06em;color:#b3aecb}
+.tag{background:rgba(255,196,107,.13);border:1px solid rgba(255,196,107,.3);color:#ffc46b;border-radius:999px;padding:2px 12px;font-size:13px;font-weight:600}
+button{font:inherit;font-size:14px;font-weight:600;border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:7px 14px;background:rgba(255,255,255,.06);color:#e7e4f5;cursor:pointer} button:hover{background:rgba(255,255,255,.11)}
+button[aria-pressed=true]{background:rgba(138,180,255,.16);border-color:rgba(138,180,255,.45);color:#8ab4ff}
+main{flex:1;display:flex;min-height:0} #log{flex:1;overflow:auto;padding:22px} #mirror{display:none;flex:2;background:#08070d;align-items:center;justify-content:center} #mirror img{max-width:100%;max-height:100%}
+#ask{display:none;gap:10px;padding:12px 18px;background:rgba(8,7,13,.7);border-top:1px solid #272438} #ask input{flex:1;font:inherit;padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:inherit} #ask input:focus{outline:none;border-color:#8ab4ff}
+#ask button,#start{border:0;color:#0b0a12;background:linear-gradient(100deg,#ffb86b,#ff7eb6 52%,#8ab4ff)}
+.line{margin:0 0 16px;max-width:70ch} .who{font:500 11px/1.8 "Geist Mono Variable","Geist Mono","Cascadia Mono",Consolas,monospace;letter-spacing:.04em;color:#6f6a8a;display:block} .you{color:#b3aecb} .guide.now{color:#8ab4ff}
+#start{display:none;position:fixed;inset:0;margin:auto;width:260px;height:64px;font-size:20px;border-radius:999px;box-shadow:0 14px 40px -12px rgba(255,126,182,.7)}
 </style></head><body>
 <header><b>Guide</b><span class="tag" id="label" hidden></span><button id="sound" aria-pressed="true">Sound</button><button id="mirrorBtn" aria-pressed="false">Show the page here</button></header>
 <main><div id="log"></div><div id="mirror"><img alt="The page the guide is driving"></div></main>

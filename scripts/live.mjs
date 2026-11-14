@@ -424,16 +424,30 @@ function ringInPage(el, [note, tone]) {
     host.append(node);
     return node;
   };
-  const ring = make(`position:fixed;border:3px solid ${tone};border-radius:10px;box-shadow:0 0 0 9999px rgba(15,23,42,.38);pointer-events:none;z-index:2147483646`);
-  const words = make(`position:fixed;max-width:min(560px,80vw);background:#0f172a;color:#f8fafc;border-left:5px solid ${tone};border-radius:10px;padding:12px 16px;font:500 16px/1.4 "Segoe UI",system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.45);pointer-events:none;z-index:2147483647`);
+  // the tone with some of it taken away, for the glow round the ring
+  const rgb = [1, 3, 5].map((i) => parseInt(tone.slice(i, i + 2), 16)).join(',');
+  const soft = (alpha) => `rgba(${rgb},${alpha})`;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const ring = make(`position:fixed;box-sizing:border-box;border:2px solid ${tone};border-radius:12px;box-shadow:0 0 0 9999px rgba(8,7,13,.42),0 0 0 5px ${soft(0.2)},0 0 30px ${soft(0.55)};pointer-events:none;z-index:2147483646`);
+  // a second edge that keeps leaving the first, so the eye finds the ring on a busy page
+  const pulse = make(`position:fixed;box-sizing:border-box;border:2px solid ${tone};border-radius:12px;pointer-events:none;z-index:2147483646`);
+  const words = make(`position:fixed;box-sizing:border-box;max-width:min(560px,80vw);background:linear-gradient(180deg,rgba(28,25,42,.96),rgba(14,13,22,.97));color:#f6f4ff;border:1px solid rgba(255,255,255,.09);border-left:3px solid ${tone};border-radius:12px;padding:12px 16px;font:500 16px/1.45 "Geist Variable",Geist,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;letter-spacing:-.005em;box-shadow:0 24px 50px -20px rgba(0,0,0,.8),0 0 0 1px rgba(0,0,0,.3);backdrop-filter:blur(12px);pointer-events:none;z-index:2147483647`);
   words.textContent = note || '';
   if (!note) words.style.display = 'none';
+  if (still) pulse.style.display = 'none';
+  else {
+    pulse.animate([{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(1.08)', opacity: 0 }], { duration: 1600, iterations: Infinity, easing: 'cubic-bezier(.2,.7,.3,1)' });
+    ring.animate([{ opacity: 0, transform: 'scale(1.12)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 380, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    words.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: 120, fill: 'backwards', easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
   let live = true;
   const place = () => {
     if (!live) return;
     if (!el.isConnected) return window.__wagClear();
     const r = el.getBoundingClientRect();
-    Object.assign(ring.style, { left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
+    const box = { left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` };
+    Object.assign(ring.style, box);
+    Object.assign(pulse.style, box);
     // the bar along the bottom, when it is there, is not written over
     const floor = innerHeight - (document.getElementById('wag-bar')?.offsetHeight ?? 0) - 20;
     const below = r.bottom + 14 + words.offsetHeight < floor;
@@ -444,13 +458,14 @@ function ringInPage(el, [note, tone]) {
   window.__wagClear = () => {
     live = false;
     ring.remove();
+    pulse.remove();
     words.remove();
     window.__wagClear = undefined;
   };
   place();
 }
 
-async function ring(target, note, tone = '#38bdf8') {
+async function ring(target, note, tone = '#8ab4ff') {
   const found = locate(target);
   // said in words, with what was looked for: a rehearsal or a guide reads this to know what to fix
   await found.waitFor({ state: 'visible', timeout: 6000 }).catch((error) => {
@@ -707,24 +722,37 @@ function barInPage(state) {
     // a sheet made in script, so a page that allows no inline styles still shows the bar
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(`
-      .wrap{box-sizing:border-box;background:#0f172a;color:#f8fafc;border-radius:12px;border-left:5px solid #38bdf8;padding:12px 16px;font:500 16px/1.45 "Segoe UI",system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.45)}
-      .wrap.asking{border-left-color:#fbbf24}
-      .head{display:flex;gap:10px;font-size:13px;color:#94a3b8;margin-bottom:2px}
-      .head .mark{margin-left:auto;color:#fbbf24;font-weight:700}
-      .asked{font-size:14px;color:#cbd5e1;margin:2px 0}
-      .words{white-space:pre-wrap;max-height:9.5em;overflow:auto}
-      .list{display:grid;gap:2px;max-height:14.5em;overflow:auto;margin-top:8px;padding-top:6px;border-top:1px solid #334155}
-      .list button{text-align:left;background:transparent;font-weight:500;padding:7px 8px}
-      .list button.now{background:#1e293b;color:#7dd3fc}
-      form{display:flex;gap:8px;margin-top:10px}
-      input{flex:1;min-width:0;font:inherit;color:#f8fafc;background:#020617;border:1px solid #475569;border-radius:8px;padding:7px 11px}
-      input:focus{outline:2px solid #38bdf8;outline-offset:1px}
-      .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-      button{font:600 14px/1 "Segoe UI",system-ui,sans-serif;color:#f8fafc;background:#1e293b;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
-      button:hover{background:#334155}
-      button.main,button[aria-pressed="true"]{background:#38bdf8;color:#0f172a}
-      button:disabled{opacity:.45;cursor:default}
+      .wrap{--tone:#8ab4ff;--sans:"Geist Variable",Geist,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--mono:"Geist Mono Variable","Geist Mono","Cascadia Mono",Consolas,ui-monospace,monospace;position:relative;box-sizing:border-box;overflow:hidden;background:linear-gradient(180deg,rgba(28,25,42,.95),rgba(13,12,20,.97));color:#f6f4ff;border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:14px 18px 14px 20px;font:500 16px/1.5 var(--sans);letter-spacing:-.005em;box-shadow:0 30px 60px -24px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(16px) saturate(140%);animation:rise .42s cubic-bezier(.2,.8,.2,1)}
+      .wrap::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#ffb86b,#ff7eb6 50%,#8ab4ff)}
+      .wrap::after{content:"";position:absolute;inset:-40% 40% auto -10%;height:120%;background:radial-gradient(closest-side,rgba(109,74,255,.16),transparent);pointer-events:none}
+      .wrap.asking{--tone:#ffc46b}
+      .wrap.asking::before{background:#ffc46b}
+      .wrap>*{position:relative;z-index:1}
+      .head{display:flex;align-items:center;gap:10px;font:500 11.5px/1.6 var(--mono);letter-spacing:.02em;color:#8f8aa8;margin-bottom:4px}
+      .head .mark{margin-left:auto;padding:1px 10px;border-radius:999px;background:rgba(255,196,107,.13);border:1px solid rgba(255,196,107,.3);color:#ffc46b;font-weight:600}
+      .head .mark:empty{display:none}
+      .asked{font-size:14px;color:#b3aecb;margin:2px 0 4px}
+      .words{white-space:pre-wrap;max-height:9.5em;overflow:auto;font-size:17px;color:#f6f4ff}
+      .list{display:grid;gap:2px;max-height:14.5em;overflow:auto;margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}
+      .list button{text-align:left;background:transparent;border-color:transparent;font-weight:500;padding:8px 10px}
+      .list button:hover{background:rgba(255,255,255,.06)}
+      .list button.now{background:rgba(138,180,255,.12);color:#8ab4ff}
+      form{display:flex;gap:8px;margin-top:12px}
+      input{flex:1;min-width:0;font:inherit;font-size:15px;color:#f6f4ff;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px 12px}
+      input::placeholder{color:#6f6a8a}
+      input:focus{outline:none;border-color:var(--tone);box-shadow:0 0 0 3px rgba(138,180,255,.22)}
+      .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+      button{font:600 13.5px/1 var(--sans);color:#e7e4f5;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:9px 14px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
+      button:hover{background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.16)}
+      button:active{transform:translateY(1px)}
+      button:focus-visible{outline:2px solid #8ab4ff;outline-offset:2px}
+      button.main{color:#0b0a12;border:0;background:linear-gradient(100deg,#ffb86b,#ff7eb6 52%,#8ab4ff);box-shadow:0 8px 22px -10px rgba(255,126,182,.7)}
+      button.main:hover{filter:brightness(1.08)}
+      button[aria-pressed="true"]{background:rgba(138,180,255,.16);border-color:rgba(138,180,255,.45);color:#8ab4ff}
+      button:disabled{opacity:.4;cursor:default;transform:none}
       [hidden]{display:none!important}
+      @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+      @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
     `);
     root.adoptedStyleSheets = [sheet];
     const wrap = el('div', 'wrap');
@@ -1302,7 +1330,7 @@ const routes = {
         if (!again) {
           // already there, because the guide did it or the viewer was ahead: nothing to ring or wait for
           if (!live.turn.until.file && (await holds(live.turn.until))) return { ok: true, reached: true, already: true };
-          await ring(live.turn.point, `Your turn. ${live.turn.says}`, '#fbbf24');
+          await ring(live.turn.point, `Your turn. ${live.turn.says}`, '#ffc46b');
           turnBegan = Date.now();
         }
         const reached = await until({ ...live.turn.until, since: turnBegan }, 20000);
