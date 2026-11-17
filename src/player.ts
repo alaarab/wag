@@ -141,7 +141,16 @@ function motionOptions(t: MotionConfig) {
     : { type: 'tween' as const, duration: t.duration ?? 0.3, ease: t.ease ?? ('easeOut' as const) };
 }
 
-export function mount(deck: Deck, root: HTMLElement): Player {
+export interface MountOptions {
+  /**
+   * Play for a recording (npm run video): no bar, no sound and no live page. The recorder moves the
+   * deck on with `next()` and lays the narration audio in afterwards.
+   */
+  video?: boolean;
+}
+
+export function mount(deck: Deck, root: HTMLElement, options: MountOptions = {}): Player {
+  const video = options.video ?? false;
   root.style.position = 'relative';
   root.style.overflow = 'hidden';
 
@@ -160,7 +169,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
   root.append(frameEl);
 
   // a deck that is narrated or hands out files gets a bar under the slide; other decks keep the whole window
-  const guided = deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout || s.live);
+  const guided = !video && deck.slides.some((s) => s.narration.length > 0 || s.downloads.length > 0 || s.handout || s.live);
   const narrated = deck.slides.some((s) => s.narration.length > 0);
   // set once the bar is built: where its arrows and hint go as the window changes size, and how it stops
   let placeEdges = (_middle: number) => {};
@@ -272,7 +281,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
 
   function say(next: string | undefined) {
     rest(next);
-    if (!next) return;
+    if (!next || video) return;
     const mine = turn;
     const heard = (now: typeof hearing) => {
       if (mine !== turn) return;
@@ -351,7 +360,7 @@ export function mount(deck: Deck, root: HTMLElement): Player {
 
   // Guided slides. The bridge (scripts/live.mjs) does the driving; the player only asks it to and
   // shows what came back. With no bridge the buttons are off and the deck is still a deck.
-  const drives = deck.slides.some((s) => s.live);
+  const drives = !video && deck.slides.some((s) => s.live);
   let bridge: 'unknown' | 'up' | 'no-browser' | 'down' = 'unknown';
   /** what the last button press reported, as lines for the panel */
   type ReportLine = { kind: 'ok' | 'no' | 'wait' | 'note'; text: string };

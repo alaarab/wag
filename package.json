@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "new": "node scripts/new.mjs",
     "make": "node scripts/make.mjs",
+    "video": "node scripts/video.mjs",
     "test": "node tests/build.mjs && node --test --test-concurrency=1 \"tests/*.test.mjs\""
   },
   "dependencies": {

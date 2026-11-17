@@ -84,7 +84,9 @@ if (!wanted) {
   try {
     const module = await load(wanted);
     document.title = `${module.default.title ?? wanted} · wag`;
-    mount(module.default, app);
+    // ?video: npm run video starts the deck itself, once the page is ready and its clock is held
+    if (new URLSearchParams(location.search).has('video')) (window as unknown as { wagVideo: unknown }).wagVideo = { deck: module.default, start: () => mount(module.default, app, { video: true }) };
+    else mount(module.default, app);
   } catch (error) {
     // deck files are code, so a typo should say what is wrong instead of leaving a blank page
     page(

@@ -177,6 +177,17 @@ WAG_TTS=elevenlabs ELEVENLABS_API_KEY=... npm run make <deck>
 
 `ffmpeg` is needed too. Made files go in the folder the deck names with `deck({ assets: '/my-deck' })`, under `public/`; its `audio/`, `handouts/` and `wag.json` are not committed.
 
+## Video
+
+`npm run video <deck>` turns a deck into an mp4: an ad, a promo, a training video. It plays with no bar, and each slide stays for its narration and a short pause after it. The narration is the audio `npm run make` wrote, in whichever voice made it, so make first. A step with nothing to say stays for `--hold` seconds, which is all a deck with no narration needs.
+
+```sh
+npm run make promo
+npm run video promo -- --out promo.mp4
+```
+
+The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--height` (1080; the width follows the deck), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`. A slide that drives a live page plays as its slide alone. To record the live page itself, use `guide record` (see Guided mode).
+
 ## Guided mode
 
 <table><tr>
@@ -312,6 +323,7 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 - `examples/snack/`: a pack for the made-up page
 - `tests/`: `npm test`, the bridge and the session against the made-up page
 - `scripts/make.mjs`: narration audio and Word handouts
+- `scripts/video.mjs`: a deck to an mp4
 - `scripts/live.mjs`: the bridge that drives a browser
 - `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
 - `scripts/ask.sh`: an answerer for the Ask box, using Claude Code
