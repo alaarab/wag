@@ -917,6 +917,9 @@ export function mount(deck: Deck, root: HTMLElement, options: MountOptions = {})
       node.append(svg);
     }
     node.dataset.wag = el.id;
+    // for `wag check`, which reads the page to say what does not fit
+    node.dataset.kind = el.kind;
+    if (el.decor) node.dataset.decor = '';
 
     const values = Object.fromEntries(KEYS.map((k) => [k, motionValue(el.base[k])])) as unknown as Values;
     const loop = Object.fromEntries(LOOP_KEYS.map((k) => [k, motionValue(NEUTRAL[k])])) as Record<LoopKey, MotionValue<number>>;

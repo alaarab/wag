@@ -6,6 +6,7 @@
 // complete layout: the web player springs between layouts, and an exporter can turn each one
 // into its own PowerPoint slide.
 
+import { FORMATS, type Format } from './layout';
 import type { createScopedAnimate } from 'motion';
 
 export type Ease = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
@@ -395,6 +396,30 @@ export interface Accent {
   gradient?: string;
 }
 
+export type VoiceEngine = 'piper' | 'kokoro' | 'pocket' | 'elevenlabs';
+export type VoiceChoice = VoiceEngine | { engine: VoiceEngine; voice?: string };
+
+export interface VideoOptions {
+  /** frames a second (30) */
+  fps?: number;
+  /** the video's shorter side in pixels (1080) */
+  size?: number;
+  /** seconds a step with no narration stays (3) */
+  hold?: number;
+  /** seconds after a line before moving on (1) */
+  gap?: number;
+  /** seconds between a slide arriving and its line starting (0.5) */
+  lead?: number;
+  /** a music bed: a file under the deck's public folder, such as '/my-deck/bed.mp3' */
+  music?: string;
+  /** how loud the bed is, in dB (-12) */
+  musicVolume?: number;
+  /** let the bed dip while a line is heard (true) */
+  duck?: boolean;
+  /** the lines as subtitles: 'srt' next to the video, 'burn' drawn into it as well */
+  captions?: 'srt' | 'burn';
+}
+
 export interface DeckOptions {
   /** shown in the player's bar and on the deck's handouts */
   title?: string;
@@ -412,8 +437,20 @@ export interface DeckOptions {
   pronounce?: Record<string, string>;
   /** the app a guided deck drives: `go` addresses are added to it. The bridge can be pointed elsewhere for a rehearsal. */
   app?: string;
+  /**
+   * The canvas, by name: 'wide' (1280 x 720, the default), 'square' (1080 x 1080) or 'tall'
+   * (720 x 1280, for a phone). `width` and `height` set any other size.
+   */
+  format?: Format;
   width?: number;
   height?: number;
+  /**
+   * The voice `npm run make` says the lines in: 'piper', 'kokoro', 'pocket' or 'elevenlabs', or
+   * `{ engine, voice }` to name the voice too. WAG_TTS in the shell wins over it.
+   */
+  voice?: VoiceChoice;
+  /** how the deck's video is made (`wag produce`, `npm run video`); a flag on the command line wins */
+  video?: VideoOptions;
   bg?: string;
   font?: string;
   /** how words marked with asterisks are set: see `Accent` */
@@ -433,6 +470,8 @@ export interface Deck {
   app?: string;
   width: number;
   height: number;
+  voice?: VoiceChoice;
+  video: VideoOptions;
   bg: string;
   font: string;
   accent: Accent;
@@ -681,8 +720,10 @@ export function deck(options: DeckOptions, slides: Slide[]): Deck {
     auto: options.auto ?? false,
     pronounce: options.pronounce ?? {},
     app: options.app?.replace(/\/$/, ''),
-    width: options.width ?? 1280,
-    height: options.height ?? 720,
+    width: options.width ?? FORMATS[options.format ?? 'wide'].width,
+    height: options.height ?? FORMATS[options.format ?? 'wide'].height,
+    voice: options.voice,
+    video: options.video ?? {},
     bg: options.bg ?? '#0b0a12',
     font: options.font ?? FONTS.body,
     accent: options.accent ?? { font: FONTS.accent, italic: true },

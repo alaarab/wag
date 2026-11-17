@@ -47,16 +47,29 @@ The same decks also play as ordinary slides, and those look like this. A deck is
 
 ```sh
 npm install
-npm run dev              # http://localhost:5179 lists every deck
-npm run new my-deck      # decks/my-deck.ts, from a small starter
-npm run make guide       # narration audio and Word handouts for a deck
-npm run build            # a static copy of the player and every deck, in dist/
-npm test                 # the bridge and the live session, against the made-up page
+npm run dev                          # http://localhost:5179 lists every deck
+npx wag new my-deck --kind slides    # a whole starter: slides, ad, training or walkthrough
+npx wag check my-deck                # what does not fit, and a picture of every slide
+npx wag produce my-deck              # its voice, a check and its video, in one go
+npm run build                        # a static copy of the player and every deck, in dist/
+npm test
 ```
 
-`npx wag` is the same under one name (`wag new`, `wag dev`, `wag make`, `wag build`), with two more for a live session on an app's pages: `wag live <pack>` and `wag rehearse <pack> <deck>`. See [Packs](#packs).
+`npx wag` is every command under one name. Each is also an `npm run` script (`npm run new`, `check`, `make`, `video`, `produce`).
 
-Three decks ship with the repo, all about made-up things: `demo` (what slides can do), `guide` (a narrated walkthrough) and `guided` (a deck that drives a made-up page, `public/guide/app.html`).
+| Command | What it does |
+|---|---|
+| `wag new <name> --kind slides\|ad\|training\|walkthrough` | A new deck from a starter of that kind, in a look of its own, with narration. An ad takes `--format wide\|square\|tall` |
+| `wag check <deck>` | Plays every slide and step and says what does not fit: text bigger than its box, off the canvas, over other text, too faint to read, lines too long to follow. Writes `wag-check/<deck>/sheet.jpg`, every slide on one sheet. Ends with 1 on a problem |
+| `wag make <deck>` | The narration audio, Word handouts and walk |
+| `wag video <deck>` | The deck as an mp4 |
+| `wag produce <deck>` | `make`, `check` and `video` in one go; a problem stops it (`--force` goes on) |
+| `wag video <pack> <deck>` | A video of a real app, the walk played on it (also `wag film`) |
+| `wag live <pack>`, `wag rehearse <pack> <deck>` | A live session on an app's pages; a walk played with nobody watching. See [Packs](#packs) |
+
+**For an AI agent:** [`AGENTS.md`](AGENTS.md) is the guide to making a good deck, ad, training video or walkthrough with wag: the loop, how to write the words, how to make it look good. `skills/wag/` is a skill that points an agent working in another project at it.
+
+Example decks ship with the repo, all about made-up things: `demo` (what slides can do), `looks` (a look made from a word), `guide` (a narrated walkthrough) and `guided` (a deck that drives a made-up page, `public/guide/app.html`). `starters/` holds the four starters.
 
 ## A slide
 
@@ -96,6 +109,30 @@ The canvas is 1280 by 720. A slide is a small state machine: a state is a set of
 | Files to take away | `slide({ downloads: [{ label, href }], handout: true })` |
 | A whole guide as steps | `guide(options, [{ title, say, show, mine, download, check }])` |
 | Picking one out | `shade: 'rgba(2,6,23,.55)'` dims the slide outside an element |
+
+## Layout helpers and formats
+
+Where things go can be worked out instead of counted. Each helper gives `{ x, y, w, h }` boxes, which is what every element takes:
+
+```ts
+import { box, cols, grid, inset, page, panel, rows, take, text } from 'wag';
+
+const body = page('wide', { top: 216 });        // the canvas inside its margins, below a heading
+const [left, right] = cols(body, [2, 1], 28);    // two columns, 2:1, 28 apart
+const cards = grid(body, 3, 2, 24);              // six boxes, three across
+box({ ...panel(t), ...cards[0] });
+text('Hello', { ...inset(cards[0], 24), fontSize: 24 });
+```
+
+`rows` is `cols` turned on its side, `inset(box, pad)` takes room off every side, `take(box, 'top', 60)` is a slice off one side, and `canvas(format)` is the whole canvas.
+
+A deck's canvas is `format: 'wide'` (1280 x 720, the default), `'square'` (1080 x 1080) or `'tall'` (720 x 1280, for a phone); `width` and `height` set any other. A video's shorter side is 1080 pixels unless `--size` says otherwise, so a tall deck is 1080 x 1920.
+
+A deck can also say how it is voiced and filmed, so its video is the same every time. A flag or `WAG_TTS` on the command line wins:
+
+```ts
+deck({ ...look(t), assets: '/promo', format: 'tall', voice: 'kokoro', video: { captions: 'burn', music: '/promo/bed.mp3', gap: 0.4 } }, slides);
+```
 
 ## Type and themes
 
@@ -213,7 +250,7 @@ npm run make promo
 npm run video promo -- --out promo.mp4
 ```
 
-The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--height` (1080; the width follows the deck), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`.
+The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--size` (1080, the shorter side; `--height` sets the height instead), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`.
 
 **Music and captions.** `--music track.mp3` lays a bed under it all: it loops if it is short, fades in and out, and dips while a line is heard so the voice stays clear (`--music-volume -12` in dB, `--no-duck` to keep it level). Use a track you may use. `--captions srt` writes the lines as subtitles next to the video, timed to the voice; `--captions burn` draws them into the picture as well. No speech recognition is needed: wag knows every word and when it is said.
 
@@ -344,10 +381,11 @@ WAG_DECKS=~/private-decks WAG_OUT=~/private-decks/out npm run build
 
 The start page has a **Download .pptx** button for each deck. Entrances and builds become native animations, and hover and click states become hidden slides joined by Morph. Drag, loops, scenes, video, narration and live steps are not carried over.
 
-## Layout
+## Where things are
 
 - `src/scene.ts`: the deck format and its builders
 - `src/kit.ts`: ready-made slides (`story`, `shot`, `guide`)
+- `src/layout.ts`: `page`, `cols`, `rows`, `grid`, `inset`, `take` and the formats
 - `src/theme.ts`: the `dark` and `light` themes
 - `src/fresh.ts`: `fresh()`, a whole look from a word
 - `src/motion.ts`: the motion pieces
@@ -360,9 +398,12 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 - `bin/wag.mjs`: the `wag` command, and what a pack is
 - `examples/snack/`: a pack for the made-up page
 - `tests/`: `npm test`, the bridge and the session against the made-up page
+- `scripts/new.mjs` and `starters/`: a new deck from a starter
+- `scripts/check.mjs`: what does not fit, and a picture of every slide
+- `scripts/produce.mjs`: make, check and video in one go
 - `scripts/make.mjs`: narration audio and Word handouts
 - `scripts/video.mjs`: a deck to an mp4
-- `scripts/media/`: the media library: voices (`voices.mjs`, `pocket.py`) and putting a video together with its voice, music and captions (`assemble.mjs`)
+- `scripts/media/`: the media library: voices (`voices.mjs`, `pocket.py`) and the stage a deck is played on with its clock held (`stage.mjs`), and putting a video together with its voice, music and captions (`assemble.mjs`)
 - `scripts/live.mjs`: the bridge that drives a browser
 - `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
 - `scripts/ask.sh`: an answerer for the Ask box, using Claude Code

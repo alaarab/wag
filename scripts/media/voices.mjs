@@ -1,4 +1,5 @@
-// The voices a deck's lines can be said in. `npm run make` picks one with WAG_TTS:
+// The voices a deck's lines can be said in. A deck names its own with `deck({ voice: 'kokoro' })`
+// or `{ engine: 'kokoro', voice: 'af_heart' }`; WAG_TTS in the shell wins over it:
 //
 //   piper       (default) offline, on this machine: ~/.local/share/wag-voice, see the README
 //   kokoro      offline, on this machine, a better voice than Piper: `npm i --no-save kokoro-js` once
@@ -27,10 +28,15 @@ const toMp3 = (from, to) => run('ffmpeg', ['-y', '-loglevel', 'error', '-i', fro
  * The voice the surroundings ask for. Gives { name, id, parallel, why, say(text, mp3), close() }:
  * `why` says what is missing when it cannot speak, and is empty when it can.
  */
-export async function openVoice(env = process.env) {
-  const name = (env.WAG_TTS ?? 'piper').toLowerCase();
-  if (!VOICES.includes(name)) throw new Error(`WAG_TTS is "${env.WAG_TTS}": it can be ${VOICES.join(', ')}`);
-  return { piper, kokoro, pocket, elevenlabs }[name](env);
+export async function openVoice(env = process.env, choice) {
+  // the deck's own choice (`deck({ voice })`) stands unless the shell says otherwise
+  const own = typeof choice === 'string' ? { engine: choice } : (choice ?? {});
+  const name = (env.WAG_TTS ?? own.engine ?? 'piper').toLowerCase();
+  if (!VOICES.includes(name)) throw new Error(`The voice is "${name}": it can be ${VOICES.join(', ')}`);
+  // the deck's voice within that engine, when it names one and it is the deck's engine being used
+  const key = { piper: 'WAG_VOICE', kokoro: 'WAG_KOKORO_VOICE', pocket: 'WAG_POCKET_VOICE', elevenlabs: 'WAG_ELEVENLABS_VOICE' }[name];
+  const with_ = own.voice && own.engine === name && !env[key] ? { ...env, [key]: own.voice } : env;
+  return { piper, kokoro, pocket, elevenlabs }[name](with_);
 }
 
 function scratch() {

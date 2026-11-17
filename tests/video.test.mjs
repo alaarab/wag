@@ -27,6 +27,8 @@ export default deck({}, [slide({ bg: '#ff0000' }, []), slide({ bg: '#0000ff' }, 
 
     const seconds = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out], { encoding: 'utf8' }));
     assert.ok(Math.abs(seconds - 2.5) < 0.1, `the video is ${seconds} s`);
+    // the size asked for is the size made: a 1280 x 720 deck at height 360
+    assert.equal(execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', out], { encoding: 'utf8' }).trim(), '640,360');
     const [first, last] = [colourAt(out, 0.5), colourAt(out, 2.3)];
     assert.ok(first[0] > 200 && first[2] < 60, `the first slide is red: ${first}`);
     assert.ok(last[2] > 200 && last[0] < 60, `the last slide is blue: ${last}`);

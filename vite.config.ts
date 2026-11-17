@@ -54,8 +54,8 @@ function outsideDecks(): Plugin {
 
 export default defineConfig({
   plugins: [outsideDecks()],
-  // decks import 'wag' wherever they live
-  resolve: { alias: { wag: join(here, 'src/index.ts') } },
+  // decks import 'wag' wherever they live, and the icon packages a deck may bring its icons from
+  resolve: { alias: { wag: join(here, 'src/index.ts'), lucide: join(here, 'node_modules/lucide'), 'simple-icons': join(here, 'node_modules/simple-icons') } },
   // fixed port so the links printed by `npm run new` are right
   // WAG_LIVE is where scripts/live.mjs listens, so a guided deck can drive a browser while it is being written
   // 127.0.0.1 and not "localhost", which on some machines is only the IPv6 address: the bridge and

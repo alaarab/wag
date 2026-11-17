@@ -54,7 +54,7 @@ const audio = {};
 let voice = null;
 if (lines.length) {
   try {
-    voice = await openVoice();
+    voice = await openVoice(process.env, deck.voice);
   } catch (error) {
     console.error(error.message);
     process.exit(1);

@@ -13,6 +13,7 @@
 // captions   'srt' writes a subtitle file next to the video; 'burn' also draws them into the picture
 // label      words stamped in the corner, such as "PRIVATE: real data"
 // width, height  the size of the video: every picture is fitted to it, even one drawn at another size
+// shape      [width, height] of the pictures when they are not being fitted, so captions can be sized
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
@@ -27,7 +28,7 @@ export const srt = (lines) => lines.map((l, i) => `${i + 1}\n${clock(l.at)} --> 
 /** Escape a path for a filter option: ffmpeg treats : , ' [ ] and \ there as its own. */
 const inFilter = (path) => path.replace(/[\\:',[\]]/g, (c) => `\\${c}`);
 
-export function assemble({ pictures, length, out, lines = [], music, captions, label, width, height }) {
+export function assemble({ pictures, length, out, lines = [], music, captions, label, width, height, shape }) {
   const heard = lines.filter((l) => l.file);
   const subtitles = captions && lines.length ? out.replace(/\.[^./]+$/, '') + '.srt' : null;
   if (subtitles) writeFileSync(subtitles, srt(lines));
@@ -38,8 +39,12 @@ export function assemble({ pictures, length, out, lines = [], music, captions, l
   heard.forEach((l) => inputs.push('-i', l.file));
   if (music) inputs.push('-stream_loop', '-1', '-i', music.file);
 
+  // captions are sized from the picture's shorter side, so a tall video's are not twice a wide one's
+  // (libass counts sizes against a picture 288 high)
+  const [w, h] = shape ?? [width ?? 16, height ?? 9];
+  const captionSize = Math.round(((15 * Math.min(w, h)) / h) * 10) / 10;
   // the picture: one steady rate, the size asked for, the label and the captions drawn on
-  const video = [pictures.pipe ? '' : 'fps=30', width && height ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1` : width ? `scale=${width}:-2` : '', label ? `drawtext=text='${label.replace(/[':\\]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '', captions === 'burn' && subtitles ? `subtitles=filename=${inFilter(subtitles)}:force_style='FontName=Sans,FontSize=15,PrimaryColour=&H00FFFFFF,BackColour=&H99000000,BorderStyle=3,Outline=5,Shadow=0,MarginV=22'` : '']
+  const video = [pictures.pipe ? '' : 'fps=30', width && height ? `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1` : width ? `scale=${width}:-2` : '', label ? `drawtext=text='${label.replace(/[':\\]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '', captions === 'burn' && subtitles ? `subtitles=filename=${inFilter(subtitles)}:force_style='FontName=Sans,FontSize=${captionSize},PrimaryColour=&H00FFFFFF,BackColour=&H99000000,BorderStyle=3,Outline=5,Shadow=0,MarginV=22'` : '']
     .filter(Boolean)
     .join(',');
   const graph = [`[0:v]${video || 'null'}[v]`];

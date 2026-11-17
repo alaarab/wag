@@ -3,11 +3,14 @@
 //
 //   wag new <name>                 a new deck in decks/
 //   wag dev | build                work on the decks in a browser, or build them
+//   wag new <name> --kind ad       ... or training, walkthrough, slides: a whole starter of that kind
+//   wag check <deck>               play every slide, say what does not fit, and picture them all
 //   wag make <deck>                a deck's narration, handouts and walk
+//   wag video <deck>               a deck as a video (--music, --captions, --look ...)
+//   wag produce <deck>             make, check and video in one go
 //   wag live <pack> [--walk DECK]  a live session on an app's pages: the bar, questions, walks
 //   wag rehearse <pack> <deck>     play a walk with nobody watching and say which steps work
-//   wag film <pack> <deck>         play a walk on the app and make a video of it (--out, --size, --music, --captions, --no-bar)
-//   wag video <deck>               a deck itself as a video (see npm run video)
+//   wag video <pack> <deck>        a video of the app itself, the walk played on it (also: wag film)
 //   wag guide [--pack PACK] ...    the guide's own commands (where, goto, say, walk next, record ...)
 //
 // A pack is a folder with a pack.json: everything a session needs to know about one app, kept
@@ -107,19 +110,22 @@ const plain = () => rest.filter((word, i) => !word.startsWith('--') && !(rest[i 
 
 if (command === 'new') run(process.execPath, [script('new.mjs'), ...rest]);
 else if (command === 'make') run(process.execPath, [script('make.mjs'), ...rest]);
-else if (command === 'video') run(process.execPath, [script('video.mjs'), ...rest]);
-else if (command === 'dev' || command === 'build') run(process.execPath, [join(repo, 'node_modules/vite/bin/vite.js'), ...(command === 'build' ? ['build'] : []), ...rest]);
+else if (command === 'check' || command === 'produce') run(process.execPath, [script(`${command}.mjs`), ...rest]);
+// wag video <deck> is the deck as a video; wag video <pack> <deck> is the app, filmed
+else if (command === 'video' && !(rest[0] && existsSync(rest[0]) && (statSync(rest[0]).isFile() || existsSync(join(rest[0], 'pack.json'))))) run(process.execPath, [script('video.mjs'), ...rest]);
+// vite is given the repo as its root, so these work from any folder
+else if (command === 'dev' || command === 'build') run(process.execPath, [join(repo, 'node_modules/vite/bin/vite.js'), ...(command === 'build' ? ['build'] : []), repo, ...rest]);
 else if (command === 'guide') {
   // --pack points the guide at that pack's session, so its key and its app need not be put in the shell first
   const pack = rest[0] === '--pack' ? readPack(rest[1]) : null;
   run(process.execPath, [script('guide.mjs'), ...(pack ? rest.slice(2) : rest)], pack ? { GUIDE_KEY_FILE: join(pack.at(pack.sessions ?? 'sessions'), 'bridge.token'), GUIDE_APP: pack.app } : {});
-} else if (command === 'live' || command === 'rehearse' || command === 'film') {
+} else if (command === 'live' || command === 'rehearse' || command === 'film' || command === 'video') {
   const [where, deck] = plain();
   const pack = readPack(where);
   if (command !== 'live' && !deck) stop(`Which walk? wag ${command} <pack> <deck>`);
   // wag film passes its own options on, with paths made whole from here
   const given = (name, path = false) => (typeof flag(name) === 'string' ? [`--${name}`, path ? resolve(flag(name)) : flag(name)] : []);
-  const film = command === 'film' ? { deck, options: [...given('out', true), ...given('size'), ...given('music', true), ...given('music-volume'), ...given('captions'), ...['no-duck', 'no-bar'].filter((name) => rest.includes(`--${name}`)).map((name) => `--${name}`)] } : undefined;
+  const film = command === 'film' || command === 'video' ? { deck, options: [...given('out', true), ...given('size'), ...given('music', true), ...given('music-volume'), ...given('captions'), ...['no-duck', 'no-bar'].filter((name) => rest.includes(`--${name}`)).map((name) => `--${name}`)] } : undefined;
   const made = sessionFor(pack, { walk: typeof flag('walk') === 'string' ? flag('walk') : undefined, rehearse: command === 'rehearse' ? deck : undefined, film, build: rest.includes('--build'), port: flag('port') });
   if (command === 'live') {
     console.log(`A live session on ${pack.app}${made.live ? '' : ' (for building: a tab of its own)'}.`);
@@ -129,6 +135,6 @@ else if (command === 'guide') {
   }
   run(process.execPath, made.args, made.env);
 } else {
-  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split("\n").slice(1, 11).map((line) => line.replace(/^\/\/ ?/, '')).join('\n'));
+  console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split("\n").slice(1, 14).map((line) => line.replace(/^\/\/ ?/, '')).join('\n'));
   process.exit(command ? 2 : 0);
 }

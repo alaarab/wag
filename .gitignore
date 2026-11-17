@@ -12,3 +12,5 @@ tests/.out
 examples/*/sessions
 # the guide command a live session writes beside its notes
 examples/*/notes/.bin
+# written by wag check
+wag-check
