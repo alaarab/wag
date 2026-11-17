@@ -167,6 +167,14 @@ python3 -m venv ~/.local/share/wag-voice/venv
 ~/.local/share/wag-voice/venv/bin/python -m piper.download_voices en_US-lessac-high --data-dir ~/.local/share/wag-voice/voices
 ```
 
+For a studio voice instead, ask for [ElevenLabs](https://elevenlabs.io) by name. The lines are then sent to it and spoken on your plan, so it is never the default:
+
+```sh
+WAG_TTS=elevenlabs ELEVENLABS_API_KEY=... npm run make <deck>
+```
+
+`WAG_ELEVENLABS_VOICE` picks the voice by its ID (default George, one of ElevenLabs' own), `WAG_ELEVENLABS_MODEL` the model (default `eleven_multilingual_v2`; `eleven_flash_v2_5` costs half), and `WAG_ELEVENLABS_URL` another region's address. Only lines not said before in that voice are sent, so a second make costs nothing. A walk plays the same audio, so a recording of it carries that voice too.
+
 `ffmpeg` is needed too. Made files go in the folder the deck names with `deck({ assets: '/my-deck' })`, under `public/`; its `audio/`, `handouts/` and `wag.json` are not committed.
 
 ## Guided mode
