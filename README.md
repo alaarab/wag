@@ -101,7 +101,7 @@ The canvas is 1280 by 720. A slide is a small state machine: a state is a set of
 
 Typefaces ship as files in the bundle, so a deck looks the same on any machine and in a recording, and nothing is fetched from a font service. The default four are Bricolage Grotesque for headlines, Geist for text, Instrument Serif for marked words and Geist Mono for labels and code (`FONTS` names them); Fraunces, Unbounded, Syne, Space Grotesk, Sora, Playfair Display, Archivo, Inter, Manrope, DM Sans, JetBrains Mono, Space Mono and Caveat ship too, all under the Open Font License, and a face is only downloaded when a slide uses it. A theme is the look in one object: colours, typefaces, how marked words are set, and the light behind a slide. `dark` and `light` ship.
 
-**A fresh look from a word.** Rather than pick from a few themes, make one: `fresh('Q3 launch')` builds a whole look from any word. Light or dark, a tinted ground, a colour scheme around one hue, an accent, a gradient, the light behind the slides, a pairing of typefaces and how marked words are set. The same word always makes the same look, so the deck in the browser, its video and its PowerPoint agree; another word makes another. Colours are worked out in OKLCH and checked for contrast, so every look reads.
+**A fresh look from a word.** Rather than pick from a few themes, make one: `fresh('Q3 launch')` builds a whole look from any word. Light or dark, a tinted ground, a colour scheme around one hue, an accent, a gradient, the light behind the slides, a pairing of typefaces and how marked words are set. Its shape too: round, soft, crisp, sharp or block panels, with the edge and shadow that go with them. And how it moves: a snappy, bouncy, smooth or gentle spring, how elements come in, and how slides arrive. The same word always makes the same look, so the deck in the browser, its video and its PowerPoint agree; another word makes another. Colours are worked out in OKLCH and checked for contrast, so every look reads.
 
 ```ts
 import { deck, fresh, look } from 'wag';
@@ -110,6 +110,8 @@ const t = fresh('Q3 launch');                             // or fresh('Q3 launch
 // const t = fresh('Acme', { brand: '#ff5a1f', dark: false })   built around your colour
 export default deck({ ...look(t) }, [/* slides that use t */]);
 ```
+
+`look(t)` gives the deck the look's ground, type, spring and slide transition. Three helpers put the rest on a slide, and work with `dark` and `light` as well: `panel(t)` is a panel in the look's shape (`box({ ...panel(t), x, y, w, h })`, or a motion piece as its own card), `headline(t)` is a heading in its type (`text('Hello', { ...headline(t), fontSize: 56, ... })`), and `arrive(t, delay)` is how an element comes in (`enter: arrive(t, 0.2)`).
 
 Moods: `calm`, `bold`, `playful`, `serious`, `warm`, `cool`. To browse, open the dev app's **Fresh looks** page (`npm run dev`, then `/?looks`): many words side by side, your own word, a mood, Shuffle. **Copy** gives the line for your deck; **Play** plays a short deck in that look; **Keep** copies the look as a plain theme, which stays as it is even if a later wag makes that word into something else. Write a deck with `fresh(seedOr('my deck'))` and it can be tried in any look from the address bar (`?deck=my-deck&look=any+word`) or as a video (`npm run video my-deck -- --look "any word"`); `decks/looks.ts` is one.
 

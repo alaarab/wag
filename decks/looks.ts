@@ -1,13 +1,14 @@
 // One short promo, in a look made from a word. Try others from the address bar (?deck=looks&look=any
 // word), from the looks page (?looks), or in a video: npm run video looks -- --look "any word".
 import { Captions, Film, Mic } from 'lucide';
-import { aurora, bars, box, deck, fade, fresh, icon, look, ring, scribble, seedOr, slide, stat, text } from 'wag';
+import { arrive, aurora, bars, box, deck, fade, fresh, headline, icon, look, panel, ring, scribble, seedOr, slide, stat, text } from 'wag';
 
 const t = fresh(seedOr('wag'));
-const rise = { dy: 26, opacity: 0 };
-const card = { fill: t.panel, radius: 22, stroke: t.line, strokeWidth: 1, shadow: t.shadow, theme: t };
+// the look's own way in, its own panel and its own headline
+const rise = arrive(t);
+const card = { ...panel(t), theme: t };
 const eyebrow = (content: string, y = 62) => text(content, { x: 80, y, w: 900, h: 22, font: t.mono, fontSize: 13, weight: 500, tracking: 0.18, caps: true, color: t.faint, enter: { opacity: 0, dy: 10 } });
-const heading = (content: string, y = 90, size = 56) => text(content, { x: 80, y, w: 1100, h: size * 1.3, font: t.display, fontSize: size, weight: 800, tracking: -0.035, leading: 1.02, color: t.ink, reveal: 'words' });
+const heading = (content: string, y = 90, size = 56) => text(content, { ...headline(t), x: 80, y, w: 1100, h: size * 1.3, fontSize: size, leading: 1.02, reveal: 'words' });
 
 const title = slide({ stagger: 0.06, narration: 'A look made from one word.' }, [
   aurora({ theme: t, strength: 0.9 }),
@@ -34,8 +35,8 @@ const made = slide({ transition: 'fade', stagger: 0.06, narration: 'Voice, video
   ...[Mic, Film, Captions].map((line, i) => [
     box({ ...card, x: 80 + i * 380, y: 260, w: 340, h: 300, enter: { ...rise, delay: 0.2 + i * 0.12 } }),
     icon(line, { x: 110 + i * 380, y: 296, w: 84, h: 84, alt: ['Voice', 'Video', 'Captions'][i], color: [t.accent, t.ink, t.ink][i], delay: 0.5 + i * 0.15 }),
-    text(['Five voices', 'One command', 'Timed to the word'][i], { x: 110 + i * 380, y: 420, w: 280, h: 40, font: t.display, fontSize: 30, weight: 700, tracking: -0.02, color: t.ink, enter: { ...rise, delay: 0.6 + i * 0.12 } }),
-    text(['Offline, or a studio voice when you ask for one.', 'Any deck to an mp4, frame by frame.', 'Drawn in, or kept beside the video.'][i], { x: 110 + i * 380, y: 466, w: 280, h: 70, fontSize: 18, leading: 1.4, color: t.dim, enter: { ...rise, delay: 0.7 + i * 0.12 } }),
+    text(['Five voices', 'One command', 'Timed to the word'][i], { x: 110 + i * 380, y: 392, w: 290, h: 68, ...headline(t), fontSize: 26, valign: 'bottom', enter: { ...rise, delay: 0.6 + i * 0.12 } }),
+    text(['Offline, or a studio voice when you ask for one.', 'Any deck to an mp4, frame by frame.', 'Drawn in, or kept beside the video.'][i], { x: 110 + i * 380, y: 472, w: 280, h: 70, fontSize: 18, leading: 1.4, color: t.dim, enter: { ...rise, delay: 0.7 + i * 0.12 } }),
   ]).flat(),
   scribble('underline', { x: 470, y: 548, w: 260, h: 24, color: t.accent, delay: 1.6 }),
 ]);

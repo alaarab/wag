@@ -90,21 +90,23 @@ function specimen(seed: string, look: Theme) {
   const q = (stack: string) => stack.replace(/"/g, "'");
   const t = { ...look, display: q(look.display), body: q(look.body), mono: q(look.mono), marked: look.marked && { ...look.marked, font: look.marked.font && q(look.marked.font) } };
   const card = document.createElement('div');
-  card.style.cssText = `border-radius:18px;overflow:hidden;background:${t.bg};border:1px solid ${t.line};display:flex;flex-direction:column`;
+  card.style.cssText = `border-radius:18px;overflow:hidden;background:${t.bg};border:1px solid ${look.line};display:flex;flex-direction:column`;
+  const head = `font-family:${t.display};font-weight:${t.heading?.weight ?? 800};letter-spacing:${t.heading?.tracking ?? -0.03}em;${t.heading?.caps ? 'text-transform:uppercase;' : ''}color:${t.ink}`;
+  const box = `border-radius:${Math.min(t.radius ?? 12, 26)}px;border:${t.edge ?? 1}px solid ${t.line};box-shadow:${t.shadow.split(', inset')[0]}`;
   const accent: NonNullable<Theme['marked']> = t.marked ?? {};
   const mark = `font-family:${accent.font ?? t.display};${accent.italic ? 'font-style:italic;' : ''}${accent.weight ? `font-weight:${accent.weight};` : ''}${accent.gradient ? `background:${accent.gradient};-webkit-background-clip:text;background-clip:text;color:transparent;` : `color:${accent.color ?? t.accent};`}`;
   const top = document.createElement('div');
   top.style.cssText = `flex:1;position:relative;padding:26px 26px 20px;background:radial-gradient(120% 90% at 0% 0%, ${t.glow[0]}55, transparent 60%), radial-gradient(90% 80% at 100% 10%, ${t.glow[1]}44, transparent 60%), ${t.bg}`;
   top.innerHTML = `
     <div style="font:500 11px ${t.mono};letter-spacing:.18em;text-transform:uppercase;color:${t.faint}">${seed}</div>
-    <div style="margin-top:10px;font-family:${t.display};font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.035em;color:${t.ink}">Slides that <span style="${mark}">move.</span></div>
+    <div style="margin-top:10px;${head};font-size:${t.heading?.caps ? 32 : 38}px;line-height:1.02">Slides that <span style="${mark};text-transform:none;letter-spacing:0">move.</span></div>
     <div style="margin-top:10px;font:16px/1.45 ${t.body};color:${t.dim}">One file, a voice, a video. Made from a single word.</div>
-    <div style="display:flex;gap:10px;margin-top:16px;align-items:stretch">
-      <div style="flex:1;padding:12px 14px;border-radius:12px;background:${t.panel};border:1px solid ${t.line}">
+    <div style="display:flex;gap:16px;margin:16px 6px 8px 0;align-items:stretch">
+      <div style="flex:1;padding:12px 14px;background:${t.panel};${box}">
         <div style="font:500 10px ${t.mono};letter-spacing:.16em;text-transform:uppercase;color:${t.faint}">Sign-ups</div>
-        <div style="font-family:${t.display};font-weight:800;font-size:26px;letter-spacing:-.03em;color:${t.ink}">3,906 <span style="font:600 11px ${t.mono};color:${t.good}">+12%</span></div>
+        <div style="${head};font-size:26px">3,906 <span style="font:600 11px ${t.mono};color:${t.good}">+12%</span></div>
       </div>
-      <div style="width:92px;border-radius:12px;background:${t.gradient}"></div>
+      <div style="width:92px;background:${t.gradient};${box}"></div>
     </div>`;
   const bottom = document.createElement('div');
   bottom.style.cssText = `display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid ${t.line};background:${t.panel}`;
@@ -154,7 +156,11 @@ function looks() {
   const grid = document.createElement('div');
   grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px';
   const draw = (seeds: string[]) => grid.replaceChildren(...seeds.map((seed) => specimen(seed, fresh(seed, mood ? { mood } : {}))));
-  const random = () => Array.from({ length: 12 }, () => `${WORDS[Math.floor(Math.random() * WORDS.length)]} ${Math.floor(Math.random() * 90 + 10)}`);
+  const random = () => {
+    const drawn = new Set<string>();
+    while (drawn.size < 12) drawn.add(`${WORDS[Math.floor(Math.random() * WORDS.length)]} ${Math.floor(Math.random() * 90 + 10)}`);
+    return [...drawn];
+  };
   let seeds = random();
   shuffle.addEventListener('click', () => draw((seeds = random())));
   select.addEventListener('change', () => {

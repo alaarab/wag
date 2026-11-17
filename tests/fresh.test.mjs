@@ -21,6 +21,12 @@ test('the same word gives the same look, and other words give others', () => {
   assert.equal(looks.size, 40);
   const faces = new Set(Array.from({ length: 40 }, (_, i) => fresh(`word ${i}`).display));
   assert.ok(faces.size >= 5, `only ${faces.size} headline faces in 40 looks`);
+  // shape and motion change with the word too
+  const all = Array.from({ length: 40 }, (_, i) => fresh(`word ${i}`));
+  assert.ok(new Set(all.map((t) => t.radius)).size >= 6, 'corners differ');
+  assert.ok(new Set(all.map((t) => JSON.stringify(t.motion))).size >= 3, 'the spring differs');
+  assert.ok(new Set(all.map((t) => t.transition)).size >= 3, 'slides arrive in different ways');
+  assert.ok(new Set(all.map((t) => JSON.stringify(t.enter))).size >= 4, 'elements come in in different ways');
 });
 
 test('every look reads: text, second text and the accent stand out from the ground', () => {

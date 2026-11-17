@@ -7,6 +7,8 @@
 //   a colour scheme around one hue: neighbours, opposites, a split or a triad
 //   an accent, a gradient and the light behind the slide, all from that scheme
 //   a pairing of typefaces from the ones wag ships, and how marked words are set
+//   a shape: how round the panels are, how heavy their edges, what kind of shadow
+//   how things move: the spring, how elements come in, how slides arrive
 //
 // Colours are worked out in OKLCH, where equal steps look equal, and text is checked for contrast
 // against its ground, so every look reads. `mood` leans it one way; `brand` starts from your colour.
@@ -14,7 +16,7 @@
 //   deck({ ...look(fresh('Q3 launch')) }, ...)
 //   fresh('Q3 launch', { mood: 'calm' })     calm, bold, playful, serious, warm, cool
 //   fresh('Acme', { brand: '#ff5a1f', dark: false })
-import type { Accent } from './scene';
+import type { Accent, Enter, MotionConfig, SlideTransition } from './scene';
 import type { Theme } from './theme';
 
 export type Mood = 'calm' | 'bold' | 'playful' | 'serious' | 'warm' | 'cool';
@@ -139,18 +141,42 @@ const F = {
 };
 
 /** Pairings that work: a face for headlines, one for text, one for labels, and the moods each suits. */
-const PAIRS: { name: string; display: string; body: string; mono: string; serifDisplay?: boolean; moods: Mood[] }[] = [
-  { name: 'Bricolage and Geist', display: F.bricolage, body: F.geist, mono: F.geistMono, moods: ['playful', 'bold', 'warm'] },
-  { name: 'Fraunces and Inter', display: F.fraunces, body: F.inter, mono: F.jetbrains, serifDisplay: true, moods: ['calm', 'warm', 'serious'] },
-  { name: 'Unbounded and Manrope', display: F.unbounded, body: F.manrope, mono: F.jetbrains, moods: ['bold', 'cool', 'playful'] },
-  { name: 'Syne and DM Sans', display: F.syne, body: F.dmsans, mono: F.spaceMono, moods: ['bold', 'playful'] },
-  { name: 'Space Grotesk and Inter', display: F.space, body: F.inter, mono: F.spaceMono, moods: ['cool', 'serious'] },
-  { name: 'Sora and Manrope', display: F.sora, body: F.manrope, mono: F.geistMono, moods: ['calm', 'cool'] },
-  { name: 'Playfair and DM Sans', display: F.playfair, body: F.dmsans, mono: F.jetbrains, serifDisplay: true, moods: ['serious', 'calm', 'warm'] },
-  { name: 'Archivo and Geist', display: F.archivo, body: F.geist, mono: F.geistMono, moods: ['bold', 'serious', 'cool'] },
+const PAIRS: { name: string; weight: number; tracking: number; display: string; body: string; mono: string; serifDisplay?: boolean; moods: Mood[] }[] = [
+  { name: 'Bricolage and Geist', weight: 800, tracking: -0.035, display: F.bricolage, body: F.geist, mono: F.geistMono, moods: ['playful', 'bold', 'warm'] },
+  { name: 'Fraunces and Inter', weight: 700, tracking: -0.03, display: F.fraunces, body: F.inter, mono: F.jetbrains, serifDisplay: true, moods: ['calm', 'warm', 'serious'] },
+  { name: 'Unbounded and Manrope', weight: 700, tracking: -0.045, display: F.unbounded, body: F.manrope, mono: F.jetbrains, moods: ['bold', 'cool', 'playful'] },
+  { name: 'Syne and DM Sans', weight: 800, tracking: -0.03, display: F.syne, body: F.dmsans, mono: F.spaceMono, moods: ['bold', 'playful'] },
+  { name: 'Space Grotesk and Inter', weight: 700, tracking: -0.04, display: F.space, body: F.inter, mono: F.spaceMono, moods: ['cool', 'serious'] },
+  { name: 'Sora and Manrope', weight: 700, tracking: -0.04, display: F.sora, body: F.manrope, mono: F.geistMono, moods: ['calm', 'cool'] },
+  { name: 'Playfair and DM Sans', weight: 800, tracking: -0.02, display: F.playfair, body: F.dmsans, mono: F.jetbrains, serifDisplay: true, moods: ['serious', 'calm', 'warm'] },
+  { name: 'Archivo and Geist', weight: 800, tracking: -0.03, display: F.archivo, body: F.geist, mono: F.geistMono, moods: ['bold', 'serious', 'cool'] },
 ];
 
 // ---------- the look ----------
+
+/** Shapes a look can have: corners, edges and the depth under a panel. */
+const SHAPES = {
+  soft: { moods: ['calm', 'warm', 'playful'], radius: [20, 28], edge: 1 },
+  round: { moods: ['playful', 'calm', 'warm'], radius: [34, 44], edge: 0 },
+  crisp: { moods: ['serious', 'cool', 'calm'], radius: [6, 10], edge: 1 },
+  sharp: { moods: ['serious', 'bold', 'cool'], radius: [0, 0], edge: 1.5 },
+  block: { moods: ['bold', 'playful'], radius: [4, 12], edge: 2.5 },
+} as const;
+/** How things move from one layout to the next. */
+const FEELS: Record<string, { moods: Mood[]; motion: MotionConfig }> = {
+  snappy: { moods: ['bold', 'serious', 'cool'], motion: { type: 'spring', stiffness: 380, damping: 30 } },
+  bouncy: { moods: ['playful', 'bold', 'warm'], motion: { type: 'spring', stiffness: 210, damping: 12 } },
+  smooth: { moods: ['calm', 'serious', 'warm', 'cool'], motion: { type: 'spring', stiffness: 150, damping: 22 } },
+  gentle: { moods: ['calm'], motion: { type: 'tween', duration: 0.6, ease: 'easeOut' } },
+};
+/** How an element comes in. */
+const ENTERS: Record<string, Enter> = {
+  rising: { dy: 26, opacity: 0 },
+  dropping: { dy: -22, opacity: 0 },
+  'sliding in': { dx: -40, opacity: 0 },
+  growing: { scale: 0.9, opacity: 0 },
+  fading: { opacity: 0 },
+};
 
 const SCHEMES = { neighbours: [0, 32, -28], opposites: [0, 180, 24], split: [0, 150, 210], triad: [0, 120, 240] } as const;
 
@@ -170,7 +196,9 @@ export function fresh(seed: string, o: FreshOptions = {}): Theme {
 
   // the ground: tinted toward the hue, or toward warm paper on a light look now and then
   const groundHue = !dark && r.next() < 0.35 ? r.between(70, 95) : hue;
-  const tint = r.between(0.008, dark ? 0.04 : 0.025);
+  // a dark ground tinted toward orange or yellow turns brown, so there the tint is held back
+  const warmGround = dark && groundHue > 20 && groundHue < 115;
+  const tint = r.between(0.008, dark ? 0.04 : 0.025) * (warmGround ? 0.4 : 1);
   const bg = hex(dark ? [r.between(0.13, 0.2), tint, groundHue] : [r.between(0.955, 0.985), tint, groundHue]);
   const panel = hex(dark ? [lch(bg)[0] + 0.045, tint * 1.2, groundHue] : [Math.min(0.995, lch(bg)[0] + 0.03), tint * 0.5, groundHue]);
   const line = hex(dark ? [lch(bg)[0] + 0.1, tint, groundHue] : [lch(bg)[0] - 0.09, tint, groundHue]);
@@ -203,12 +231,32 @@ export function fresh(seed: string, o: FreshOptions = {}): Theme {
         ? { font: F.caveat, weight: 700, color: accent }
         : { color: accent };
 
+  // The shape and the motion are drawn after everything above, so a word keeps the colours and
+  // type it had before these existed.
+  const fits = <K extends string>(all: Record<K, { moods: readonly Mood[] }>) => r.weighted(Object.keys(all) as K[], (key) => (!mood ? 1 : all[key].moods.includes(mood) ? 3 : 0.25));
+  const shape = fits(SHAPES);
+  const radius = Math.round(r.between(SHAPES[shape].radius[0], SHAPES[shape].radius[1]));
+  const block = shape === 'block';
+  // a block look is drawn like print: a heavy edge in the ink, and a shadow that is a solid offset
+  const shadow = block
+    ? `${Math.round(r.between(5, 9))}px ${Math.round(r.between(5, 9))}px 0 ${dark ? accent : ink}`
+    : shape === 'sharp'
+      ? 'none'
+      : dark
+        ? '0 30px 60px -28px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.06)'
+        : '0 24px 48px -28px rgba(20,18,40,0.32), 0 0 0 1px rgba(20,18,40,0.05)';
+  const feel = fits(FEELS);
+  const entering = r.pick(Object.keys(ENTERS));
+  const transition = r.weighted(['fade', 'push', 'zoom', 'iris'] as SlideTransition[], (kind) => (kind === 'fade' ? 2 : kind === 'iris' ? (mood === 'serious' || mood === 'calm' ? 0.2 : 0.8) : 1.4));
+  // capitals now and then, on a sans headline that is not already wide
+  const caps = !pair.serifDisplay && pair.display !== F.unbounded && r.next() < (mood === 'bold' ? 0.3 : 0.12);
+
   return {
     bg,
     ink,
     dim,
     faint,
-    line,
+    line: block ? (dark ? faint : ink) : line,
     panel,
     accent,
     warn: tone(70, 0.15),
@@ -216,12 +264,18 @@ export function fresh(seed: string, o: FreshOptions = {}): Theme {
     good: tone(155, 0.14),
     gradient,
     glow,
-    shadow: dark ? '0 30px 60px -28px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.06)' : '0 24px 48px -28px rgba(20,18,40,0.32), 0 0 0 1px rgba(20,18,40,0.05)',
+    shadow,
     display: pair.display,
     body: pair.body,
     mono: pair.mono,
     marked,
-    name: `${dark ? 'dark' : 'light'}, ${scheme} around ${Math.round(hue)}°, ${pair.name}, marked in ${marking === 'serif' ? 'an italic serif' : marking === 'hand' ? 'a hand' : 'the accent'}${mood ? `, ${mood}` : ''}`,
+    name: `${dark ? 'dark' : 'light'}, ${scheme} around ${Math.round(hue)}°, ${pair.name}, marked in ${marking === 'serif' ? 'an italic serif' : marking === 'hand' ? 'a hand' : 'the accent'}, ${shape}, ${feel}, ${entering}${mood ? `, ${mood}` : ''}`,
+    radius,
+    edge: SHAPES[shape].edge,
+    heading: { weight: pair.weight, tracking: caps ? 0 : pair.tracking, caps },
+    enter: ENTERS[entering],
+    motion: FEELS[feel].motion,
+    transition,
   };
 }
 

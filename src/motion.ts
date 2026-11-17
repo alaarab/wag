@@ -379,7 +379,7 @@ export interface CodeOptions extends Placed {
 export function code(source: string, o: CodeOptions): Draft {
   const t = o.theme ?? dark;
   const night = isDark(t);
-  return scene({ alt: source, fill: night ? '#100e19' : '#ffffff', radius: 18, stroke: t.line, strokeWidth: 1, shadow: t.shadow, ...o }, (root, { animate }) => {
+  return scene({ alt: source, fill: night ? '#100e19' : '#ffffff', radius: Math.min(18, t.radius ?? 18), stroke: t.line, strokeWidth: t.edge ?? 1, shadow: t.shadow, ...o }, (root, { animate }) => {
     const size = o.size ?? 19;
     const runs = colourCode(source.replace(/^\n+|\s+$/g, ''), t);
     root.innerHTML = `
@@ -472,7 +472,7 @@ export function flow(nodes: FlowNode[], links: FlowLink[], o: FlowOptions): Draf
         .map((n) => {
           const b = boxOf(n);
           const edge = n.bright ? `background:linear-gradient(${t.panel},${t.panel}) padding-box,${t.gradient} border-box;border:1.5px solid transparent` : `background:${t.panel};border:1px solid ${t.line}`;
-          return `<div class="node" style="position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 18px;border-radius:16px;${edge};box-shadow:${t.shadow};opacity:0">
+          return `<div class="node" style="position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 18px;border-radius:${Math.min(16, t.radius ?? 16)}px;${edge};box-shadow:${t.shadow};opacity:0">
             <i style="flex:none;width:10px;height:10px;border-radius:50%;background:${n.tone ?? (n.bright ? spark : t.faint)}"></i>
             <div style="min-width:0"><b style="display:block;font-family:${face(t.body)};font-weight:600;font-size:17px;color:${t.ink};white-space:nowrap">${escape(n.label)}</b>${n.sub ? `<span style="display:block;margin-top:3px;font-family:${face(t.mono)};font-size:12.5px;color:${t.faint};white-space:nowrap">${escape(n.sub)}</span>` : ''}</div>
           </div>`;

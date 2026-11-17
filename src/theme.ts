@@ -1,6 +1,6 @@
 // A theme is the look of a deck in one object: its colours, its typefaces and the light behind
 // its slides. The ready-made slides in kit.ts and the motion pieces in motion.ts all draw from one.
-import { FONTS, type Accent, type DeckOptions } from './scene';
+import { FONTS, type Accent, type DeckOptions, type Enter, type MotionConfig, type SlideTransition } from './scene';
 
 export interface Theme {
   bg: string;
@@ -30,6 +30,18 @@ export interface Theme {
   marked?: Accent;
   /** what the look is, in a few words (a fresh look says how it was made) */
   name?: string;
+  /** how round a panel's corners are, in deck pixels (20 when left out) */
+  radius?: number;
+  /** how thick a panel's edge is (1 when left out) */
+  edge?: number;
+  /** headings: how heavy, how tight, and whether in capitals */
+  heading?: { weight?: number; tracking?: number; caps?: boolean };
+  /** how an element comes in: give it to `enter` */
+  enter?: Enter;
+  /** how things move from one layout to the next */
+  motion?: MotionConfig;
+  /** how slides arrive */
+  transition?: SlideTransition;
 }
 
 export const dark: Theme = {
@@ -71,11 +83,25 @@ export const light: Theme = {
 };
 
 /** The deck options that go with a theme: `deck({ ...look(dark) }, slides)`. */
-export const look = (t: Theme): Pick<DeckOptions, 'bg' | 'font' | 'accent'> => ({
+export const look = (t: Theme): Pick<DeckOptions, 'bg' | 'font' | 'accent' | 'motion' | 'transition'> => ({
   bg: t.bg,
   font: t.body,
   accent: t.marked ?? { font: FONTS.accent, italic: true, gradient: t.gradient },
+  ...(t.motion ? { motion: t.motion } : {}),
+  ...(t.transition ? { transition: t.transition } : {}),
 });
+
+/**
+ * A panel in the theme's own shape, for a box or for a motion piece that is its own card:
+ * `box({ ...panel(t), x, y, w, h })`, `stat(412, { ...panel(t), theme: t, pad: 26, ... })`.
+ */
+export const panel = (t: Theme) => ({ fill: t.panel, radius: t.radius ?? 20, stroke: t.line, strokeWidth: t.edge ?? 1, shadow: t.shadow });
+
+/** A heading in the theme's own type: `text('Hello', { ...headline(t), x, y, w, h, fontSize: 56 })`. */
+export const headline = (t: Theme) => ({ font: t.display, weight: t.heading?.weight ?? 800, tracking: t.heading?.tracking ?? -0.03, caps: t.heading?.caps ?? false, leading: 1.04, color: t.ink });
+
+/** How an element comes in under this theme, a little later each time: `enter: arrive(t, 0.2)`. */
+export const arrive = (t: Theme, delay = 0): Enter => ({ ...(t.enter ?? { dy: 26, opacity: 0 }), delay });
 
 /** A colour with some of it taken away: `fade('#8ab4ff', 0.2)`. Takes #rgb, #rrggbb and rgb(). */
 export function fade(colour: string, alpha: number): string {

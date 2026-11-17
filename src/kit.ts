@@ -2,7 +2,7 @@
 // text and states as any other, so the player and the exporter need to know nothing about them.
 import { aurora } from './motion';
 import { box, deck, ellipse, image, path, slide, text, type Deck, type DeckOptions, type Download, type Expect, type LiveAction, type LiveCheck, type Slide, type SlideTransition, type StateProps, type Target } from './scene';
-import { dark, fade, look, type Theme } from './theme';
+import { dark, fade, headline, look, panel, type Theme } from './theme';
 
 type Drafts = Parameters<typeof slide>[1];
 
@@ -13,9 +13,9 @@ type Options = Parameters<typeof text>[1];
 /** Small spaced capitals in the mono face: the line over a heading, the name over a card. */
 const label = (content: string, t: Theme, o: Options) => text(content, { font: t.mono, fontSize: 13, weight: 500, tracking: 0.16, caps: true, color: t.faint, ...o });
 /** A heading in the display face, pulled tight. */
-const heading = (content: string, t: Theme, o: Options) => text(content, { font: t.display, weight: 800, tracking: -0.03, leading: 1.04, color: t.ink, ...o });
+const heading = (content: string, t: Theme, o: Options) => text(content, { ...headline(t), ...o });
 /** A card: the theme's panel with a hairline edge and some depth under it. */
-const card = (t: Theme, o: Parameters<typeof box>[0]) => box({ fill: t.panel, radius: 20, stroke: t.line, strokeWidth: 1, shadow: t.shadow, ...o });
+const card = (t: Theme, o: Parameters<typeof box>[0]) => box({ ...panel(t), ...o });
 
 export interface StoryOptions {
   name?: string;
@@ -307,7 +307,7 @@ export function guide(options: DeckOptions & { theme?: Theme }, steps: GuideStep
       heading(s.title, t, { x: 80, y: live ? 92 : 78, w: 1000, h: 70, fontSize: 52, reveal: 'words' }),
       text(s.about ?? s.say, { x: 80, y: live ? 172 : 162, w: 1040, h: 124, fontSize: 24, leading: 1.4, color: t.dim, enter: rise }),
       ...rows.flatMap(([name, tone, does], n) => [
-        card(t, { x: 80, y: 316 + n * 96, w: 1120, h: 80, radius: 16, enter: rise }),
+        card(t, { x: 80, y: 316 + n * 96, w: 1120, h: 80, radius: Math.min(16, t.radius ?? 16), enter: rise }),
         box({ x: 102, y: 316 + n * 96 + 25, w: 104, h: 30, radius: 15, fill: fade(tone, 0.14), stroke: fade(tone, 0.4), strokeWidth: 1, color: tone, font: t.mono, fontSize: 12.5, weight: 500, tracking: 0.08, caps: true, text: name, enter: rise }),
         text(does, { x: 226, y: 316 + n * 96, w: 950, h: 80, fontSize: 20, leading: 1.3, color: t.ink, valign: 'middle', enter: rise }),
       ]),
