@@ -17,6 +17,7 @@
 //   --music-volume DB  how loud the bed is (default -12)
 //   --no-duck      keep the bed level while lines are heard
 //   --captions srt|burn  the lines as subtitles next to the video, or drawn into it as well
+//   --look WORD    for a deck made with fresh(seedOr(...)): play it in the look this word makes
 // WAG_BROWSER names the Chromium to use when none is found on the PATH.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,6 +42,7 @@ const { values: o, positionals } = parseArgs({
     'music-volume': { type: 'string', default: '-12' },
     'no-duck': { type: 'boolean', default: false },
     captions: { type: 'string' },
+    look: { type: 'string' },
   },
 });
 const name = positionals[0];
@@ -116,7 +118,7 @@ try {
   const page = await browser.newPage({ viewport: { width: deck.width, height: deck.height }, deviceScaleFactor: scale, reducedMotion: 'no-preference' });
   page.on('pageerror', (error) => console.error(`The deck failed: ${error.message}`));
   await page.clock.install({ time: 0 });
-  await page.goto(`${origin}/?deck=${encodeURIComponent(name)}&video`);
+  await page.goto(`${origin}/?deck=${encodeURIComponent(name)}&video${o.look ? `&look=${encodeURIComponent(o.look)}` : ''}`);
   await page.waitForFunction(() => window.wagVideo, null, { polling: 100, timeout: 30_000 });
   await page.evaluate(() => document.fonts.ready);
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
@@ -147,6 +149,9 @@ try {
         v.currentTime = v.loop ? local % v.duration : Math.min(local, v.duration);
         return new Promise((done) => v.addEventListener('seeked', done, { once: true }));
       }));
+      // a typeface is fetched the first time a slide uses it: lay the page out, then wait for it
+      void document.body.offsetHeight;
+      await document.fonts.ready;
       // a picture that is still on its way would be missing from this frame
       await Promise.all([...document.images].filter((img) => !img.complete).map((img) => new Promise((done) => (img.onload = img.onerror = done))));
     };

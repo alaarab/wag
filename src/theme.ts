@@ -1,6 +1,6 @@
 // A theme is the look of a deck in one object: its colours, its typefaces and the light behind
 // its slides. The ready-made slides in kit.ts and the motion pieces in motion.ts all draw from one.
-import { FONTS, type DeckOptions } from './scene';
+import { FONTS, type Accent, type DeckOptions } from './scene';
 
 export interface Theme {
   bg: string;
@@ -26,6 +26,10 @@ export interface Theme {
   display: string;
   body: string;
   mono: string;
+  /** how words marked with asterisks are set; the default is an italic serif in the gradient */
+  marked?: Accent;
+  /** what the look is, in a few words (a fresh look says how it was made) */
+  name?: string;
 }
 
 export const dark: Theme = {
@@ -70,7 +74,7 @@ export const light: Theme = {
 export const look = (t: Theme): Pick<DeckOptions, 'bg' | 'font' | 'accent'> => ({
   bg: t.bg,
   font: t.body,
-  accent: { font: FONTS.accent, italic: true, gradient: t.gradient },
+  accent: t.marked ?? { font: FONTS.accent, italic: true, gradient: t.gradient },
 });
 
 /** A colour with some of it taken away: `fade('#8ab4ff', 0.2)`. Takes #rgb, #rrggbb and rgb(). */
