@@ -14,3 +14,6 @@ examples/*/sessions
 examples/*/notes/.bin
 # written by wag check
 wag-check
+# videos made at the top of the repo: a deck makes its own again with `wag produce`
+/*.mp4
+/*.srt
