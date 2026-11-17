@@ -17,7 +17,9 @@
 // --ask COMMAND (what answers a question typed in the deck's Ask box or on the console: see "questions"),
 // --walk NAME (play that deck's steps on the page itself, with a bar there to step and to ask: see "the walk"),
 // --bar ADDRESS (the bar from the start with no walk running, to ask about any page and to pick a walk from),
-// --rehearse NAME (play that deck's steps with nobody watching and say which ones work: see "rehearsal").
+// --rehearse NAME (play that deck's steps with nobody watching and say which ones work: see "rehearsal"),
+// --film NAME (play that deck's steps with nobody watching and make a video of the page: see "film";
+// --out FILE says where it goes, --size WxH how big, default 1920x1080).
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -44,6 +46,7 @@ const walkName = option('walk');
 // the bar with nothing playing, on this page to begin with: a whole address, or a path under the bridge's --app
 const floorAt = option('bar');
 const rehearseName = option('rehearse');
+const filmName = option('film');
 // one session to a port: a second start must not take the first one's key file or start a second bridge
 await new Promise((free, taken) => {
   const probe = http.createServer().once('error', taken).once('listening', () => probe.close(free)).listen(port, '127.0.0.1');
@@ -75,6 +78,7 @@ if (bridgeCommand) {
     if (said.ready) {
       bridgeReady = true;
       if (rehearseName) void rehearse(rehearseName);
+      else if (filmName) void film(filmName);
       else if (walkName) void startWalk(walkName).then((started) => started.ok || console.log(`The walk did not start: ${started.why}`));
       else if (floorAt) void floor({ go: true });
     }
@@ -902,6 +906,101 @@ async function rehearse(name) {
   );
   console.log(`In full: ${join(dir, 'rehearsal.md')} (and rehearsal.json, the same for a program)`);
   stop(bad ? 1 : 0);
+}
+
+// ---- film ----------------------------------------------------------------------------------------
+// --film NAME plays a walk on the page with nobody watching and makes a video of it: an app demo, a
+// training video. Each step's Show me is done while its lines are heard (the audio `npm run make`
+// wrote), the bar on the page shows the words, a step's own click is rung and not pressed (as in a
+// rehearsal, and the guard refuses it anyway), and its Check is read onto the bar. The tab is filmed
+// as the browser draws it, so it is as smooth as the page. It ends with 0 when every step worked.
+
+async function film(name) {
+  const file = name && findWalk(name);
+  if (!file) {
+    console.log(`Film: no walk called "${name}". Run "npm run make ${name}", build, and give the session its --deck.`);
+    return stop(1);
+  }
+  const made = JSON.parse(readFileSync(file, 'utf8'));
+  const [width, height] = option('size', '1920x1080').split('x').map(Number);
+  const out = resolve(option('out', join(dir, `${made.deck}.mp4`)));
+  walk = { ...made, dir: dirname(file), at: 0, run: 0, auto: false, done: false, shown: -1, report: '', timer: null };
+  settle();
+  const first = walk.steps.flatMap((step) => step.live?.show ?? []).find((action) => 'go' in action)?.go;
+  if (first) {
+    const there = await toBridge('cmd', { cmd: 'goto', to: first, app: walk.app });
+    if (!there?.ok) {
+      console.log(`Film: the first page did not open: ${there?.why}`);
+      return stop(1);
+    }
+  }
+  const folder = join(dir, 'film');
+  const on = await toBridge('cmd', { cmd: 'film', on: true, folder: join(folder, 'frames'), width, height });
+  if (!on?.ok) {
+    console.log(`Film: the tab could not be filmed: ${on?.why}. Filming needs the bridge on this machine.`);
+    return stop(1);
+  }
+  const clips = [];
+  const failed = [];
+  const hold = async (seconds) => sleep(seconds * 1000);
+  await hold(0.6);
+  for (const [at, step] of walk.steps.entries()) {
+    walk.at = at;
+    const text = stepText(step);
+    await draw({ head: stepHead(), caption: text, asked: '', mark: '', back: false, next: '', auto: undefined, busy: false, menu: undefined });
+    const moving = step.live?.show ? toBridge('show', { live: { show: step.live.show }, app: walk.app }) : null;
+    for (const line of step.lines) {
+      const audio = line.audio && join(walk.dir, 'audio', line.audio);
+      if (audio && existsSync(audio)) clips.push({ t: Date.now() / 1000, file: audio });
+      await hold(audio && existsSync(audio) ? (line.seconds ?? reading(line.text)) : reading(line.text));
+    }
+    const shown = moving && (await moving);
+    if (shown && !shown.ok) {
+      failed.push(`${at + 1}. ${step.title}: ${shown.why}`);
+      await draw({ caption: `${text}\n\nThe page did not get there: ${shown.why}` });
+      await hold(2);
+      continue;
+    }
+    if (step.live?.turn) {
+      if (step.live.turn.point) await toBridge('cmd', { cmd: 'highlight', target: step.live.turn.point });
+      await draw({ caption: `${text}\n\nYour click: ${step.live.turn.says}`, mark: 'Your click' });
+      await hold(3);
+      await toBridge('cmd', { cmd: 'clear' });
+      await draw({ mark: '' });
+    }
+    if (step.live?.check) {
+      const results = ((await toBridge('check', { live: { check: step.live.check } }))?.results ?? []).filter((r) => !r.skipped);
+      const bad = results.filter((r) => !r.ok);
+      if (results.length) {
+        await draw({ caption: `${text}\n\nCheck: ${bad.length ? bad.map((r) => `${r.label}: ${r.got}${r.want ? ` does not match ${r.want}` : ''}`).join('; ') : results.length === 1 ? `${results[0].label}: ${results[0].got}${results[0].want ? ` matches ${results[0].want}` : ''}` : `all ${results.length} match`}.` });
+        await hold(2.5);
+      }
+    }
+    await hold(1);
+  }
+  await draw({ mark: 'End of the walkthrough' });
+  await hold(1.5);
+  const shot = await toBridge('cmd', { cmd: 'film', on: false });
+  walk = null;
+  if (!shot?.ok || !shot.frames?.length) {
+    console.log(`Film: no pictures of the page were taken${shot?.why ? `: ${shot.why}` : ''}.`);
+    return stop(1);
+  }
+  // each picture is held until the next one; the sound is laid in from when each line began
+  const { frames, until } = shot;
+  const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? until) - f.t).toFixed(4)}`).join('\n');
+  writeFileSync(join(folder, 'frames.txt'), `${list}\nfile '${frames.at(-1).file}'\n`);
+  const start = frames[0].t;
+  const inputs = clips.flatMap((c) => ['-i', c.file]);
+  const stamp = label ? `,drawtext=text='${label.replace(/[':]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '';
+  const sound = clips.length
+    ? `;${clips.map((c, i) => `[${i + 1}:a]adelay=${Math.max(0, Math.round((c.t - start) * 1000))}:all=1[a${i}]`).join(';')};${clips.map((_, i) => `[a${i}]`).join('')}amix=inputs=${clips.length}:normalize=0[a]`
+    : '';
+  mkdirSync(dirname(out), { recursive: true });
+  await run('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(folder, 'frames.txt'), ...inputs, '-filter_complex', `[0:v]fps=30,scale=${width}:-2${stamp}[v]${sound}`, '-map', '[v]', ...(clips.length ? ['-map', '[a]', '-c:a', 'aac', '-b:a', '192k'] : []), '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', (until - start).toFixed(2), out]);
+  console.log(`Film of "${made.title}": ${made.steps.length} steps, ${Math.round(until - start)} s, ${clips.length} lines heard${failed.length ? `, ${failed.length} steps did not work:\n  ${failed.join('\n  ')}` : ''}.`);
+  console.log(`Wrote ${out}`);
+  stop(failed.length ? 1 : 0);
 }
 
 const server = http.createServer(async (req, res) => {

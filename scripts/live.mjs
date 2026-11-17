@@ -1128,6 +1128,8 @@ async function whereNow() {
   return { address: page.url(), tab: whose, ...seen, lastDownload: lastDownload ? { name: lastDownload.name, secondsAgo: Math.round((Date.now() - lastDownload.at) / 1000) } : null };
 }
 
+/** the tab being filmed: its devtools session, where its pictures go, and the pictures so far */
+let filming = null;
 const commands = {
   where: () => whereNow(),
   /** Draw the bar on the page with this state, or take it away. `shown` is false on a tab the guide may not act in. */
@@ -1288,6 +1290,36 @@ const commands = {
   /** the tab as a small picture, for a console that mirrors it or a recording */
   async frame() {
     return { jpeg: (await page.screenshot({ type: 'jpeg', quality: 55 })).toString('base64') };
+  },
+  /**
+   * Film the tab: every picture the browser draws, as it draws it, into `folder` on this machine, at
+   * width x height. `on: false` stops and gives the pictures with the second each was drawn
+   * (seconds since 1970, from this machine's clock).
+   */
+  async film({ on, folder, width = 1920, height = 1080 }) {
+    if (on) {
+      if (filming) return { ok: false, why: 'already filming' };
+      if (!folder) return { ok: false, why: 'no folder to film into' };
+      await tab();
+      mkdirSync(folder, { recursive: true });
+      await page.setViewportSize({ width, height });
+      const cdp = await page.context().newCDPSession(page);
+      filming = { cdp, folder, frames: [] };
+      cdp.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
+        const file = join(folder, `${String(filming.frames.length + 1).padStart(6, '0')}.jpg`);
+        writeFileSync(file, Buffer.from(data, 'base64'));
+        filming.frames.push({ file, t: metadata.timestamp });
+        void cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+      });
+      await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: width, maxHeight: height, everyNthFrame: 1 });
+      return { ok: true, did: `Filming at ${width}x${height}` };
+    }
+    if (!filming) return { ok: false, why: 'nothing is being filmed' };
+    const done = filming;
+    filming = null;
+    await done.cdp.send('Page.stopScreencast').catch(() => {});
+    await done.cdp.detach().catch(() => {});
+    return { ok: true, frames: done.frames, until: Date.now() / 1000 };
   },
   async clear() {
     await clear();

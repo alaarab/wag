@@ -246,6 +246,8 @@ The words built in are general ones. Your app's own go in a [pack](#packs), or o
        "A row that is not there" did not show on the page within 6 seconds.
 ```
 
+**A video of a walk.** `wag film <pack> <deck> --out demo.mp4` plays the walk on the app with nobody watching and films the page as the browser draws it: an app demo or a training video on the real product. Each step's Show me is done while its lines are heard (the audio `npm run make` wrote, ElevenLabs or Piper), the bar shows the words, a step's own click is rung and never pressed, and its Check is read onto the bar. `--size 1280x720` changes the size (default 1920x1080). It uses a tab of its own, never yours, and ends with 1 when a step did not work. For a deck's slides as a video, see Video.
+
 **GIFs of a walk.** `guide record start`, play the walk, then `guide record stop --gif`: next to the video you get `session.gif` and one GIF for each step, with the step's words in the bar so they read with no sound.
 
 In a live session the guide never takes over a tab you had open on something else. It works in the tab in front only when that tab is already on the step's page; otherwise it opens a tab of its own. It never presses a button that hands over a file, whoever asks.
