@@ -6,7 +6,7 @@
 //   wag make <deck>                a deck's narration, handouts and walk
 //   wag live <pack> [--walk DECK]  a live session on an app's pages: the bar, questions, walks
 //   wag rehearse <pack> <deck>     play a walk with nobody watching and say which steps work
-//   wag film <pack> <deck>         play a walk on the app and make a video of it (--out FILE, --size WxH)
+//   wag film <pack> <deck>         play a walk on the app and make a video of it (--out, --size, --music, --captions, --no-bar)
 //   wag video <deck>               a deck itself as a video (see npm run video)
 //   wag guide [--pack PACK] ...    the guide's own commands (where, goto, say, walk next, record ...)
 //
@@ -96,14 +96,14 @@ function sessionFor(pack, { walk, rehearse, film, build = false, port } = {}) {
     ...(port ? ['--port', String(port)] : []),
     ...(pronounce ? ['--pronounce', pronounce] : []),
     ...(pack.label ? ['--label', pack.label] : []),
-    ...(film ? ['--film', film.deck, '--voice', 'none', ...(film.out ? ['--out', film.out] : []), ...(film.size ? ['--size', film.size] : [])] : rehearse ? ['--rehearse', rehearse, '--voice', 'none'] : ['--bar', pack.start ?? '/', ...(walk ? ['--walk', walk] : []), ...(ask.command || ask.dir ? ['--ask', ask.command ? pack.at(ask.command) : script('ask.sh')] : [])]),
+    ...(film ? ['--film', film.deck, '--voice', 'none', ...film.options] : rehearse ? ['--rehearse', rehearse, '--voice', 'none'] : ['--bar', pack.start ?? '/', ...(walk ? ['--walk', walk] : []), ...(ask.command || ask.dir ? ['--ask', ask.command ? pack.at(ask.command) : script('ask.sh')] : [])]),
   ];
   const env = { ...(ask.dir ? { ASK_DIR: pack.at(ask.dir) } : {}), ...(ask.prompt ? { ASK_PROMPT: ask.prompt } : {}), ...(ask.model ? { GUIDE_MODEL: ask.model } : {}), GUIDE_KEY_FILE: key, GUIDE_APP: pack.app };
   return { args, env, dir, key, live };
 }
 
 const flag = (name) => (rest.includes(`--${name}`) ? (rest[rest.indexOf(`--${name}`) + 1] ?? true) : undefined);
-const plain = () => rest.filter((word, i) => !word.startsWith('--') && !(rest[i - 1]?.startsWith('--') && !['--build'].includes(rest[i - 1])));
+const plain = () => rest.filter((word, i) => !word.startsWith('--') && !(rest[i - 1]?.startsWith('--') && !['--build', '--no-duck', '--no-bar'].includes(rest[i - 1])));
 
 if (command === 'new') run(process.execPath, [script('new.mjs'), ...rest]);
 else if (command === 'make') run(process.execPath, [script('make.mjs'), ...rest]);
@@ -117,8 +117,9 @@ else if (command === 'guide') {
   const [where, deck] = plain();
   const pack = readPack(where);
   if (command !== 'live' && !deck) stop(`Which walk? wag ${command} <pack> <deck>`);
-  const out = typeof flag('out') === 'string' ? resolve(flag('out')) : undefined;
-  const film = command === 'film' ? { deck, out, size: typeof flag('size') === 'string' ? flag('size') : undefined } : undefined;
+  // wag film passes its own options on, with paths made whole from here
+  const given = (name, path = false) => (typeof flag(name) === 'string' ? [`--${name}`, path ? resolve(flag(name)) : flag(name)] : []);
+  const film = command === 'film' ? { deck, options: [...given('out', true), ...given('size'), ...given('music', true), ...given('music-volume'), ...given('captions'), ...['no-duck', 'no-bar'].filter((name) => rest.includes(`--${name}`)).map((name) => `--${name}`)] } : undefined;
   const made = sessionFor(pack, { walk: typeof flag('walk') === 'string' ? flag('walk') : undefined, rehearse: command === 'rehearse' ? deck : undefined, film, build: rest.includes('--build'), port: flag('port') });
   if (command === 'live') {
     console.log(`A live session on ${pack.app}${made.live ? '' : ' (for building: a tab of its own)'}.`);

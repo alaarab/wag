@@ -889,6 +889,8 @@ function barInPage(state) {
         auto.setAttribute('aria-pressed', String(Boolean(s.auto)));
         sound.setAttribute('aria-pressed', String(s.sound !== false));
         ask.disabled = busy;
+        // filming: the bar is only the words, with nothing to press
+        row.hidden = Boolean(s.film);
         if (busy && !form.hidden) form.hidden = true;
         // the list behind its button: made again only when it has changed, so it keeps its place while open
         const items = s.menu?.items ?? [];
@@ -1304,11 +1306,12 @@ const commands = {
       mkdirSync(folder, { recursive: true });
       await page.setViewportSize({ width, height });
       const cdp = await page.context().newCDPSession(page);
-      filming = { cdp, folder, frames: [] };
+      filming = { cdp, folder, frames: [], sizes: new Set() };
       cdp.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
         const file = join(folder, `${String(filming.frames.length + 1).padStart(6, '0')}.jpg`);
         writeFileSync(file, Buffer.from(data, 'base64'));
         filming.frames.push({ file, t: metadata.timestamp });
+        filming.sizes.add(`${metadata.deviceWidth}x${metadata.deviceHeight}`);
         void cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
       });
       await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 90, maxWidth: width, maxHeight: height, everyNthFrame: 1 });
@@ -1319,7 +1322,7 @@ const commands = {
     filming = null;
     await done.cdp.send('Page.stopScreencast').catch(() => {});
     await done.cdp.detach().catch(() => {});
-    return { ok: true, frames: done.frames, until: Date.now() / 1000 };
+    return { ok: true, frames: done.frames, sizes: [...done.sizes], until: Date.now() / 1000 };
   },
   async clear() {
     await clear();

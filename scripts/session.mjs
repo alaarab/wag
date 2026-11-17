@@ -19,7 +19,8 @@
 // --bar ADDRESS (the bar from the start with no walk running, to ask about any page and to pick a walk from),
 // --rehearse NAME (play that deck's steps with nobody watching and say which ones work: see "rehearsal"),
 // --film NAME (play that deck's steps with nobody watching and make a video of the page: see "film";
-// --out FILE says where it goes, --size WxH how big, default 1920x1080).
+// --out FILE says where it goes, --size WxH how big, default 1920x1080, --music FILE a bed under it,
+// --music-volume DB, --no-duck, --captions srt|burn, --no-bar leaves the page bare).
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -28,6 +29,7 @@ import { homedir } from 'node:os';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import { assemble } from './media/assemble.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : fallback);
@@ -237,13 +239,8 @@ async function stopRecording({ gif = false, width = 960 } = {}) {
   const list = done.frames.map((f, i) => `file '${f.file}'\nduration ${(((done.frames[i + 1]?.t ?? length) - f.t) || 0.4).toFixed(3)}`).join('\n');
   writeFileSync(join(done.folder, 'frames.txt'), `${list}\nfile '${done.frames.at(-1).file}'\n`);
   const spoken = said.filter((l) => l.audio);
-  const inputs = spoken.flatMap((l) => ['-i', join(dir, 'audio', l.audio)]);
-  const stamp = label ? `,drawtext=text='${label.replace(/[':]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '';
-  const sound = spoken.length
-    ? `;${spoken.map((l, i) => `[${i + 1}:a]adelay=${Math.round(l.t * 1000)}:all=1[a${i}]`).join(';')};${spoken.map((_, i) => `[a${i}]`).join('')}amix=inputs=${spoken.length}:normalize=0[a]`
-    : '';
   const video = join(done.folder, 'session.mp4');
-  await run('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(done.folder, 'frames.txt'), ...inputs, '-filter_complex', `[0:v]fps=10,scale=1600:-2${stamp}[v]${sound}`, '-map', '[v]', ...(spoken.length ? ['-map', '[a]'] : []), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', length.toFixed(2), video], { cwd: done.folder });
+  await assemble({ pictures: { list: join(done.folder, 'frames.txt') }, length, out: video, lines: spoken.map((l) => ({ at: l.t, seconds: l.seconds ?? 3, text: l.text, file: join(dir, 'audio', l.audio) })), label, width: 1600 }).end();
   writeFileSync(join(done.folder, 'session.srt'), spoken.map((l, i) => `${i + 1}\n${clock(l.t)} --> ${clock(l.t + (l.seconds ?? 3))}\n${l.text}\n`).join('\n'));
   // the written walkthrough: what was asked, what was said, and the page as it looked when each line ended
   const out = [`# Walkthrough of a live session, ${new Date(done.began).toLocaleString('en-US')}`, '', ...(label ? [`**${label}.** Not for sharing.`, ''] : [])];
@@ -940,45 +937,50 @@ async function film(name) {
     console.log(`Film: the tab could not be filmed: ${on?.why}. Filming needs the bridge on this machine.`);
     return stop(1);
   }
-  const clips = [];
+  const said = [];
   const failed = [];
+  const bare = args.includes('--no-bar');
+  // filming: the bar is the words alone, with no buttons; or no bar at all
+  const show = (patch) => (bare ? Promise.resolve() : draw({ ...patch, film: true }));
   const hold = async (seconds) => sleep(seconds * 1000);
   await hold(0.6);
   for (const [at, step] of walk.steps.entries()) {
     walk.at = at;
     const text = stepText(step);
-    await draw({ head: stepHead(), caption: text, asked: '', mark: '', back: false, next: '', auto: undefined, busy: false, menu: undefined });
+    await show({ head: stepHead(), caption: text, asked: '', mark: '', back: false, next: '', auto: undefined, busy: false, menu: undefined });
     const moving = step.live?.show ? toBridge('show', { live: { show: step.live.show }, app: walk.app }) : null;
     for (const line of step.lines) {
       const audio = line.audio && join(walk.dir, 'audio', line.audio);
-      if (audio && existsSync(audio)) clips.push({ t: Date.now() / 1000, file: audio });
-      await hold(audio && existsSync(audio) ? (line.seconds ?? reading(line.text)) : reading(line.text));
+      const heard = Boolean(audio && existsSync(audio));
+      const seconds = heard ? (line.seconds ?? reading(line.text)) : reading(line.text);
+      said.push({ t: Date.now() / 1000, seconds, text: line.text, file: heard ? audio : undefined });
+      await hold(seconds);
     }
     const shown = moving && (await moving);
     if (shown && !shown.ok) {
       failed.push(`${at + 1}. ${step.title}: ${shown.why}`);
-      await draw({ caption: `${text}\n\nThe page did not get there: ${shown.why}` });
+      await show({ caption: `${text}\n\nThe page did not get there: ${shown.why}` });
       await hold(2);
       continue;
     }
     if (step.live?.turn) {
       if (step.live.turn.point) await toBridge('cmd', { cmd: 'highlight', target: step.live.turn.point });
-      await draw({ caption: `${text}\n\nYour click: ${step.live.turn.says}`, mark: 'Your click' });
+      await show({ caption: `${text}\n\nYour click: ${step.live.turn.says}`, mark: 'Your click' });
       await hold(3);
       await toBridge('cmd', { cmd: 'clear' });
-      await draw({ mark: '' });
+      await show({ mark: '' });
     }
     if (step.live?.check) {
       const results = ((await toBridge('check', { live: { check: step.live.check } }))?.results ?? []).filter((r) => !r.skipped);
       const bad = results.filter((r) => !r.ok);
       if (results.length) {
-        await draw({ caption: `${text}\n\nCheck: ${bad.length ? bad.map((r) => `${r.label}: ${r.got}${r.want ? ` does not match ${r.want}` : ''}`).join('; ') : results.length === 1 ? `${results[0].label}: ${results[0].got}${results[0].want ? ` matches ${results[0].want}` : ''}` : `all ${results.length} match`}.` });
+        await show({ caption: `${text}\n\nCheck: ${bad.length ? bad.map((r) => `${r.label}: ${r.got}${r.want ? ` does not match ${r.want}` : ''}`).join('; ') : results.length === 1 ? `${results[0].label}: ${results[0].got}${results[0].want ? ` matches ${results[0].want}` : ''}` : `all ${results.length} match`}.` });
         await hold(2.5);
       }
     }
     await hold(1);
   }
-  await draw({ mark: 'End of the walkthrough' });
+  await show({ mark: 'End of the walkthrough' });
   await hold(1.5);
   const shot = await toBridge('cmd', { cmd: 'film', on: false });
   walk = null;
@@ -988,17 +990,20 @@ async function film(name) {
   }
   // each picture is held until the next one; the sound is laid in from when each line began
   const { frames, until } = shot;
+  if (shot.sizes?.some((size) => size !== `${width}x${height}`)) console.log(`Film: some pictures were ${shot.sizes.join(', ')}; they are fitted to ${width}x${height}.`);
   const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(0.001, (frames[i + 1]?.t ?? until) - f.t).toFixed(4)}`).join('\n');
   writeFileSync(join(folder, 'frames.txt'), `${list}\nfile '${frames.at(-1).file}'\n`);
   const start = frames[0].t;
-  const inputs = clips.flatMap((c) => ['-i', c.file]);
-  const stamp = label ? `,drawtext=text='${label.replace(/[':]/g, ' ')}':x=24:y=24:fontsize=30:fontcolor=white:box=1:boxcolor=0xb45309@0.92:boxborderw=12` : '';
-  const sound = clips.length
-    ? `;${clips.map((c, i) => `[${i + 1}:a]adelay=${Math.max(0, Math.round((c.t - start) * 1000))}:all=1[a${i}]`).join(';')};${clips.map((_, i) => `[a${i}]`).join('')}amix=inputs=${clips.length}:normalize=0[a]`
-    : '';
+  const music = option('music') ? { file: resolve(option('music')), volume: Number(option('music-volume', -12)), duck: !args.includes('--no-duck') } : undefined;
   mkdirSync(dirname(out), { recursive: true });
-  await run('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', join(folder, 'frames.txt'), ...inputs, '-filter_complex', `[0:v]fps=30,scale=${width}:-2${stamp}[v]${sound}`, '-map', '[v]', ...(clips.length ? ['-map', '[a]', '-c:a', 'aac', '-b:a', '192k'] : []), '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', (until - start).toFixed(2), out]);
-  console.log(`Film of "${made.title}": ${made.steps.length} steps, ${Math.round(until - start)} s, ${clips.length} lines heard${failed.length ? `, ${failed.length} steps did not work:\n  ${failed.join('\n  ')}` : ''}.`);
+  const lines = said.map((l) => ({ ...l, at: l.t - start }));
+  try {
+    await assemble({ pictures: { list: join(folder, 'frames.txt') }, length: until - start, out, lines, music, captions: option('captions'), label, width, height }).end();
+  } catch (error) {
+    console.log(`Film: the video was not made: ${error.message}`);
+    return stop(1);
+  }
+  console.log(`Film of "${made.title}": ${made.steps.length} steps, ${Math.round(until - start)} s, ${said.filter((l) => l.file).length} lines heard${failed.length ? `, ${failed.length} steps did not work:\n  ${failed.join('\n  ')}` : ''}.`);
   console.log(`Wrote ${out}`);
   stop(failed.length ? 1 : 0);
 }

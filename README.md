@@ -150,6 +150,8 @@ Ready-made things that move. Each is one call, sits in a slide the way a box doe
 | `ticker([…])` | Words passing by in a row that never ends |
 | `pointer([{ x, y, click }])` | A cursor that travels and clicks |
 | `confetti()` | A burst when the slide arrives |
+| `icon(siGithub)`, `icon(Check)` | A logo from [simple-icons](https://simpleicons.org) that pops in, or an icon from [lucide](https://lucide.dev) that draws itself. Import each one from its package, so only the icons a deck uses are in it |
+| `scribble('circle')` | A hand-drawn ring, underline, box, arrow, cross or tick ([rough.js](https://roughjs.com)) that draws itself over whatever is under its box. `seed` keeps it the same in every video |
 
 Give a piece a `fill` and a `radius` and it is its own card; `pad` keeps its drawing off the edges. A piece cannot run in PowerPoint, so an export leaves the words it ends on. The backdrop holds still for a viewer whose system asks for reduced motion.
 
@@ -167,11 +169,22 @@ python3 -m venv ~/.local/share/wag-voice/venv
 ~/.local/share/wag-voice/venv/bin/python -m piper.download_voices en_US-lessac-high --data-dir ~/.local/share/wag-voice/voices
 ```
 
-For a studio voice instead, ask for [ElevenLabs](https://elevenlabs.io) by name. The lines are then sent to it and spoken on your plan, so it is never the default:
+`WAG_TTS` picks another voice. All but ElevenLabs run on this machine:
+
+| `WAG_TTS` | The voice | Set up once | Its options |
+|---|---|---|---|
+| `piper` (default) | [Piper](https://github.com/OHF-Voice/piper1-gpl), offline | above | `WAG_VOICE` (a `.onnx` voice) |
+| `kokoro` | [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), offline, more natural than Piper | `npm i --no-save kokoro-js` (the model, about 90 MB, comes on first use) | `WAG_KOKORO_VOICE` (default `af_heart`), `WAG_KOKORO_SPEED`, `WAG_KOKORO_DTYPE` |
+| `pocket` | Kyutai's [pocket-tts](https://pypi.org/project/pocket-tts/), offline on CPU, and it can sound like you | [uv](https://docs.astral.sh/uv/), which fetches it the first time | `WAG_POCKET_VOICE`: one of its voices (`alba`, `marius`, ...) or a clean wav of someone speaking. `WAG_POCKET_PYTHON` to use your own Python |
+| `elevenlabs` | [ElevenLabs](https://elevenlabs.io), paid; the lines are sent to it | `ELEVENLABS_API_KEY` | see below |
 
 ```sh
+WAG_TTS=kokoro npm run make <deck>
+WAG_TTS=pocket WAG_POCKET_VOICE=~/me.wav npm run make <deck>
 WAG_TTS=elevenlabs ELEVENLABS_API_KEY=... npm run make <deck>
 ```
+
+Only sound a voice you have the right to: your own, or one its owner agreed to.
 
 `WAG_ELEVENLABS_VOICE` picks the voice by its ID (default George, one of ElevenLabs' own), `WAG_ELEVENLABS_MODEL` the model (default `eleven_multilingual_v2`; `eleven_flash_v2_5` costs half), and `WAG_ELEVENLABS_URL` another region's address. Only lines not said before in that voice are sent, so a second make costs nothing. A walk plays the same audio, so a recording of it carries that voice too.
 
@@ -186,7 +199,15 @@ npm run make promo
 npm run video promo -- --out promo.mp4
 ```
 
-The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--height` (1080; the width follows the deck), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`. A slide that drives a live page plays as its slide alone. To record the live page itself, use `guide record` (see Guided mode).
+The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--height` (1080; the width follows the deck), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`.
+
+**Music and captions.** `--music track.mp3` lays a bed under it all: it loops if it is short, fades in and out, and dips while a line is heard so the voice stays clear (`--music-volume -12` in dB, `--no-duck` to keep it level). Use a track you may use. `--captions srt` writes the lines as subtitles next to the video, timed to the voice; `--captions burn` draws them into the picture as well. No speech recognition is needed: wag knows every word and when it is said.
+
+```sh
+npm run video promo -- --music bed.mp3 --captions burn
+```
+
+`wag film` takes the same `--music`, `--music-volume`, `--no-duck` and `--captions`, and `--no-bar` to film the page with no words on it. Both are put together by `scripts/media/assemble.mjs`, and every voice lives in `scripts/media/voices.mjs`. A slide that drives a live page plays as its slide alone. To record the live page itself, use `guide record` (see Guided mode).
 
 ## Guided mode
 
@@ -326,6 +347,7 @@ The start page has a **Download .pptx** button for each deck. Entrances and buil
 - `tests/`: `npm test`, the bridge and the session against the made-up page
 - `scripts/make.mjs`: narration audio and Word handouts
 - `scripts/video.mjs`: a deck to an mp4
+- `scripts/media/`: the media library: voices (`voices.mjs`, `pocket.py`) and putting a video together with its voice, music and captions (`assemble.mjs`)
 - `scripts/live.mjs`: the bridge that drives a browser
 - `scripts/session.mjs`, `scripts/guide.mjs`, `scripts/voice.py`: the live guide
 - `scripts/ask.sh`: an answerer for the Ask box, using Claude Code

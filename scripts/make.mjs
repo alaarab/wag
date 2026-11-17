@@ -1,20 +1,20 @@
 // npm run make <deck>: writes the files a guided deck plays with, next to the deck's other
 // public files, under the folder the deck names in `assets`:
-//   audio/<key>.mp3     one per narration line, spoken by Piper (an offline voice), or by
-//                       ElevenLabs when asked with WAG_TTS=elevenlabs (the lines are sent to it)
+//   audio/<key>.mp3     one per narration line, in the voice WAG_TTS picks: Piper (the default),
+//                       Kokoro or Pocket on this machine, or ElevenLabs (see scripts/media/voices.mjs)
 //   handouts/<slide>.docx  a Word document for each slide that asks for one
 //   handouts/<deck>.docx   every slide in one Word document
 //   wag.json            what was made, which is how the player finds it
 //   walk.json           a guided deck's steps, for a live session to play on the page itself
 // Nothing here is needed to play a deck: without audio the browser's own voice reads the lines.
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx';
 import { createServer } from 'vite';
+import { openVoice } from './media/voices.mjs';
 
 const run = promisify(execFile);
 const repo = fileURLToPath(new URL('..', import.meta.url));
@@ -47,104 +47,58 @@ const made = existsSync(join(out, 'wag.json')) ? JSON.parse(readFileSync(join(ou
 
 // ---- narration audio -------------------------------------------------------------------------
 
-const voiceHome = join(homedir(), '.local/share/wag-voice');
-const piper = process.env.WAG_PIPER ?? [join(voiceHome, 'venv/bin/piper'), '/usr/bin/piper'].find(existsSync) ?? 'piper';
 const lines = [...new Set(deck.slides.flatMap((s) => s.narration).map((line) => wag.spoken(deck, line)))];
 const audioDir = join(out, 'audio');
 const audio = {};
 
-// Piper unless ElevenLabs is asked for by name: it is a paid service, and the lines leave the machine
-const tts = (process.env.WAG_TTS ?? 'piper').toLowerCase();
-if (!['piper', 'elevenlabs'].includes(tts)) {
-  console.error(`WAG_TTS is "${process.env.WAG_TTS}": it can be piper (the default) or elevenlabs`);
-  process.exit(1);
-}
-const eleven = tts === 'elevenlabs' && {
-  key: process.env.ELEVENLABS_API_KEY,
-  // George, one of ElevenLabs' own voices, so it works on any account
-  voice: process.env.WAG_ELEVENLABS_VOICE ?? 'JBFqnCBsd6RMkjVDRZzb',
-  model: process.env.WAG_ELEVENLABS_MODEL ?? 'eleven_multilingual_v2',
-  // another region's address, such as https://api.eu.residency.elevenlabs.io
-  base: (process.env.WAG_ELEVENLABS_URL ?? 'https://api.elevenlabs.io').replace(/\/$/, ''),
-};
-if (eleven && lines.length && !eleven.key) {
-  console.error('WAG_TTS=elevenlabs needs ELEVENLABS_API_KEY set to your ElevenLabs API key.');
-  process.exit(1);
-}
-const model = eleven ? `elevenlabs:${eleven.voice}:${eleven.model}` : process.env.WAG_VOICE ?? join(voiceHome, 'voices/en_US-lessac-high.onnx');
-
-async function canSpeak() {
-  if (eleven) return true;
-  if (!existsSync(model)) return false;
+let voice = null;
+if (lines.length) {
   try {
-    await run(piper, ['--help']);
-    return true;
-  } catch {
-    return false;
+    voice = await openVoice();
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
   }
 }
-
-/** Say one line with ElevenLabs straight into an mp3. Waits and tries again when it is asked to slow down. */
-async function elevenSay(line, file) {
-  for (let attempt = 1; ; attempt++) {
-    const res = await fetch(`${eleven.base}/v1/text-to-speech/${encodeURIComponent(eleven.voice)}?output_format=mp3_44100_128`, {
-      method: 'POST',
-      headers: { 'xi-api-key': eleven.key, 'content-type': 'application/json', accept: 'audio/mpeg' },
-      body: JSON.stringify({ text: line, model_id: eleven.model }),
-    });
-    if (res.ok) return writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-    const why = (await res.text()).slice(0, 300);
-    // 429: too many at once or too fast; 5xx: their side. Anything else will not mend by waiting.
-    if ((res.status === 429 || res.status >= 500) && attempt < 5) {
-      await new Promise((done) => setTimeout(done, 1000 * 2 ** attempt));
-      continue;
-    }
-    throw new Error(`ElevenLabs said ${res.status} for "${line.slice(0, 60)}": ${why}`);
-  }
+// Piper missing is fine: the browser reads the lines. A voice asked for by name must work.
+if (voice?.why && voice.name !== 'piper') {
+  console.error(voice.why);
+  voice.close();
+  process.exit(1);
 }
-
-if (lines.length && !(await canSpeak())) {
-  console.log(`No narration audio written: Piper or its voice was not found (looked for ${piper} and ${model}).`);
-  console.log('The browser will read the lines with its own voice. To set Piper up, see "Narration" in the README.');
-} else if (lines.length) {
+if (voice?.why) {
+  console.log(`No narration audio written: ${voice.why}`);
+  console.log('The browser will read the lines with its own voice.');
+} else if (voice) {
   mkdirSync(audioDir, { recursive: true });
-  const scratch = mkdtempSync(join(tmpdir(), 'wag-voice-'));
   // a different voice means every line is said again
-  const kept = made.voice === model ? (made.audio ?? {}) : {};
+  const kept = made.voice === voice.id ? (made.audio ?? {}) : {};
   let fresh = 0;
   const speak = async (line) => {
     const key = wag.lineKey(line);
     const file = `${key}.mp3`;
     if (!kept[key] || !existsSync(join(audioDir, file))) {
-      if (eleven) await elevenSay(line, join(audioDir, file));
-      else {
-        const wav = join(scratch, `${key}.wav`);
-        const text = join(scratch, `${key}.txt`);
-        writeFileSync(text, line);
-        await run(piper, ['-m', model, '-i', text, '-f', wav, '--sentence-silence', '0.3', '--length-scale', '1.04']);
-        await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', wav, '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', '64k', join(audioDir, file)]);
-      }
+      await voice.say(line, join(audioDir, file));
       fresh++;
     }
     const { stdout } = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', join(audioDir, file)]);
     audio[key] = { file, seconds: Math.round(Number(stdout) * 10) / 10 };
   };
-  if (eleven) console.log(`Narration by ElevenLabs (voice ${eleven.voice}, ${eleven.model}): lines not said before are sent to it.`);
-  // a few at a time: Piper loads the voice for each, which takes most of a second; ElevenLabs
-  // plans allow only a few requests at once
+  if (voice.name === 'elevenlabs') console.log(`Narration by ElevenLabs (${voice.id.slice('elevenlabs:'.length)}): lines not said before are sent to it.`);
   const waiting = [...lines];
   try {
-    await Promise.all(Array.from({ length: eleven ? 2 : 4 }, async () => {
+    await Promise.all(Array.from({ length: voice.parallel }, async () => {
       for (let line = waiting.shift(); line !== undefined; line = waiting.shift()) await speak(line);
     }));
   } catch (error) {
     console.error(error.message);
     process.exit(1);
+  } finally {
+    voice.close();
   }
-  rmSync(scratch, { recursive: true, force: true });
   for (const file of readdirSync(audioDir)) if (!audio[file.replace(/\.mp3$/, '')]) rmSync(join(audioDir, file));
   const total = Object.values(audio).reduce((sum, clip) => sum + clip.seconds, 0);
-  console.log(`Narration: ${lines.length} lines, ${fresh} newly spoken, ${Math.round(total / 6) / 10} minutes in all`);
+  console.log(`Narration (${voice.name}): ${lines.length} lines, ${fresh} newly spoken, ${Math.round(total / 6) / 10} minutes in all`);
 }
 
 // ---- Word handouts ---------------------------------------------------------------------------
@@ -215,5 +169,5 @@ if (steps.some((s) => s.live)) {
   console.log(`Walk: ${steps.length} steps, for a session started with --walk ${name}`);
 }
 
-writeFileSync(join(out, 'wag.json'), JSON.stringify({ voice: Object.keys(audio).length ? model : undefined, audio, handouts, whole }, null, 2));
+writeFileSync(join(out, 'wag.json'), JSON.stringify({ voice: Object.keys(audio).length ? voice.id : undefined, audio, handouts, whole }, null, 2));
 console.log(`Wrote ${out}`);

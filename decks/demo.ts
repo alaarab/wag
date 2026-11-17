@@ -1,5 +1,7 @@
 // What a wag deck can do, in one deck. Everything in it is made up.
-import { aurora, bars, box, choice, code, confetti, dark, deck, ellipse, fade, field, flow, look, path, pointer, ring, scene, slide, stat, text, ticker, trend, wordmark } from 'wag';
+import { Captions, Film, Mic, Music } from 'lucide';
+import { siFigma, siGithub, siLinear, siSpotify, siStripe, siYoutube } from 'simple-icons';
+import { aurora, bars, box, choice, code, confetti, dark, deck, ellipse, fade, field, flow, icon, look, path, pointer, ring, scene, scribble, slide, stat, text, ticker, trend, wordmark } from 'wag';
 import { film } from './scenes/film';
 
 const t = dark;
@@ -186,6 +188,24 @@ const numbers = slide({ transition: 'fade', stagger: 0.05 }, [
   text('Tea, twelve weeks', { x: 620, y: 392, w: 300, h: 20, font: t.mono, fontSize: 12.5, tracking: 0.16, caps: true, color: t.faint, decor: true, enter: { opacity: 0, delay: 0.8 } }),
 ]);
 
+// ---------- marks: logos, icons and a pen ----------
+
+const card = (x: number, y: number) => ({ ...asCard, x, y, w: 128, h: 128, pad: 34 });
+const marks = slide({ transition: 'fade', stagger: 0.05 }, [
+  aurora({ theme: t, strength: 0.35 }),
+  eyebrow('Motion pieces'),
+  heading('Logos, icons and a *pen.*'),
+  logo(),
+  hint('Any logo from simple-icons and any icon from lucide, imported one by one. The pen draws over anything.'),
+  // a logo that is black in its brand colour would vanish on a dark slide, so it takes the ink
+  ...[siGithub, siFigma, siLinear, siSpotify, siStripe, siYoutube].map((brand, i) => icon(brand, { ...card(80 + i * 152, 268), color: brand.hex === '181717' ? t.ink : undefined, delay: 0.2 + i * 0.08 })),
+  ...[Mic, Film, Captions, Music].map((line, i) => icon(line, { ...card(80 + i * 152, 444), alt: ['Voice', 'Video', 'Captions', 'Music'][i], color: [warm, pink, cool, mint][i], delay: 0.8 + i * 0.12 })),
+  scribble('circle', { x: 514, y: 424, w: 172, h: 168, color: warm, delay: 1.6 }),
+  scribble('arrow', { x: 704, y: 480, w: 150, h: 56, color: warm, rotate: 180, delay: 2.2 }),
+  text('Music under the *voice.*', { x: 870, y: 486, w: 340, h: 44, font: t.display, fontSize: 30, weight: 700, color: t.ink, enter: { opacity: 0, delay: 2.6 } }),
+  scribble('underline', { x: 520, y: 140, w: 150, h: 26, color: pink, delay: 1.2 }),
+]);
+
 // ---------- code ----------
 
 const source = `
@@ -335,4 +355,4 @@ const secret = slide({ name: 'secret', hidden: true, transition: 'zoom' }, [
   box({ ...pill, x: 540, y: 480, w: 200, fill: t.ink, text: 'Go back', click: { go: 'back' }, enter: { ...rise, delay: 0.7 } }),
 ]);
 
-export default deck({ ...look(t), title: 'What wag can do' }, [title, opener, dog, cards, builds, numbers, written, ways, free, gather, end, secret]);
+export default deck({ ...look(t), title: 'What wag can do' }, [title, opener, dog, cards, builds, numbers, marks, written, ways, free, gather, end, secret]);

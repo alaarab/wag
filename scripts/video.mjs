@@ -13,14 +13,19 @@
 //   --hold S       seconds a step with no narration stays (default 3)
 //   --gap S        seconds after a line before moving on (default 1)
 //   --lead S       seconds between a slide arriving and its line starting (default 0.5)
+//   --music FILE   a music bed under it all, looped, faded, and dipping while a line is heard
+//   --music-volume DB  how loud the bed is (default -12)
+//   --no-duck      keep the bed level while lines are heard
+//   --captions srt|burn  the lines as subtitles next to the video, or drawn into it as well
 // WAG_BROWSER names the Chromium to use when none is found on the PATH.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
+import { assemble } from './media/assemble.mjs';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const { values: o, positionals } = parseArgs({
@@ -32,6 +37,10 @@ const { values: o, positionals } = parseArgs({
     hold: { type: 'string', default: '3' },
     gap: { type: 'string', default: '1' },
     lead: { type: 'string', default: '0.5' },
+    music: { type: 'string' },
+    'music-volume': { type: 'string', default: '-12' },
+    'no-duck': { type: 'boolean', default: false },
+    captions: { type: 'string' },
   },
 });
 const name = positionals[0];
@@ -45,7 +54,17 @@ if (!home) {
   process.exit(1);
 }
 const pub = home === outside ? join(home, 'public') : join(repo, 'public');
-const out = resolve(process.env.INIT_CWD ?? process.cwd(), o.out ?? `${name}.mp4`);
+const here = process.env.INIT_CWD ?? process.cwd();
+const out = resolve(here, o.out ?? `${name}.mp4`);
+const music = o.music ? { file: resolve(here, o.music), volume: Number(o['music-volume']), duck: !o['no-duck'] } : undefined;
+if (music && !existsSync(music.file)) {
+  console.error(`No music at ${music.file}`);
+  process.exit(1);
+}
+if (o.captions && !['srt', 'burn'].includes(o.captions)) {
+  console.error('--captions is srt or burn');
+  process.exit(1);
+}
 
 const BROWSERS = ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'microsoft-edge'];
 const browserPath = process.env.WAG_BROWSER ?? BROWSERS.map((b) => { try { return execFileSync('which', [b], { encoding: 'utf8' }).trim(); } catch { return ''; } }).find(Boolean);
@@ -64,7 +83,7 @@ const deck = (await vite.ssrLoadModule(join(home, `${name}.ts`))).default;
 
 const made = deck.assets && existsSync(join(pub, deck.assets, 'wag.json')) ? JSON.parse(readFileSync(join(pub, deck.assets, 'wag.json'), 'utf8')) : {};
 const moves = []; // seconds at which the deck takes its next step
-const clips = []; // { at, file }
+const said = []; // { at, seconds, text, file? }
 let t = 0;
 let silent = 0;
 const shown = deck.slides.filter((s) => !s.hidden);
@@ -77,9 +96,10 @@ shown.forEach((slide, n) => {
       continue;
     }
     const clip = made.audio?.[wag.lineKey(wag.spoken(deck, line))];
-    if (clip) clips.push({ at: t + lead, file: join(pub, deck.assets, 'audio', clip.file) });
-    else silent++;
-    t += lead + (clip ? clip.seconds : 1.5 + line.length * 0.065) + gap;
+    const seconds = clip ? clip.seconds : 1.5 + line.length * 0.065;
+    said.push({ at: t + lead, seconds, text: line, file: clip && join(pub, deck.assets, 'audio', clip.file) });
+    if (!clip) silent++;
+    t += lead + seconds + gap;
   }
 });
 const total = t + 0.5;
@@ -135,12 +155,7 @@ try {
 
   // ---- frames into ffmpeg ------------------------------------------------------------------------
 
-  const audioIn = clips.flatMap((c) => ['-i', c.file]);
-  const mix = clips.length
-    ? ['-filter_complex', clips.map((c, i) => `[${i + 1}:a]adelay=${Math.round(c.at * 1000)}:all=1[a${i}]`).join(';') + `;${clips.map((_, i) => `[a${i}]`).join('')}amix=inputs=${clips.length}:normalize=0[a]`, '-map', '0:v', '-map', '[a]', '-c:a', 'aac', '-b:a', '192k']
-    : [];
-  encoder = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-', ...audioIn, ...mix, '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', total.toFixed(3), out], { stdio: ['pipe', 'inherit', 'inherit'] });
-  const encoded = new Promise((done, fail) => encoder.once('exit', (code) => (code === 0 ? done() : fail(new Error(`ffmpeg stopped with ${code}`)))));
+  encoder = assemble({ pictures: { pipe: fps }, length: total, out, lines: said, music, captions: o.captions, label: undefined });
 
   const cdp = await page.context().newCDPSession(page);
   let next = 0;
@@ -154,14 +169,13 @@ try {
     }
     await page.evaluate((ms) => window.wagFrame(ms), now);
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 92 });
-    if (!encoder.stdin.write(Buffer.from(data, 'base64'))) await new Promise((done) => encoder.stdin.once('drain', done));
+    await encoder.write(Buffer.from(data, 'base64'));
     if (f % (fps * 5) === 0) process.stdout.write(`\r${Math.round((f / frames) * 100)}%`);
   }
-  encoder.stdin.end();
-  await encoded;
-  console.log(`\rWrote ${out} (${Math.round(total)} s, made in ${Math.round((Date.now() - began) / 1000)} s)`);
+  const { subtitles } = await encoder.end();
+  console.log(`\rWrote ${out} (${Math.round(total)} s, made in ${Math.round((Date.now() - began) / 1000)} s)${subtitles ? `, and ${subtitles}` : ''}`);
 } catch (error) {
-  encoder?.kill();
+  encoder?.stop();
   console.error(error.message);
   process.exitCode = 1;
 } finally {

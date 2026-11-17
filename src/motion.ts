@@ -13,6 +13,9 @@
 //   ticker([...], …)    words passing by
 //   pointer([...], …)   a cursor that moves and clicks, for showing how something is used
 //   confetti(…)         a burst when the slide arrives
+//   icon(siGithub, …)   a logo (simple-icons) or an icon (lucide) that pops in or draws itself
+//   scribble('circle')  a hand-drawn ring, underline, box, arrow, cross or tick (rough.js) that draws itself
+import rough from 'roughjs';
 import { scene, type ElementOptions, type SceneContext, type slide } from './scene';
 import { dark, fade, type Theme } from './theme';
 
@@ -587,5 +590,116 @@ export function confetti(o: ConfettiOptions): Draft {
       const seconds = 1.6 + (i % 5) * 0.22;
       animate(piece, { x: [0, dx, dx * 1.12], y: [0, dy, dy + height * 0.55], rotate: [0, 260 + i * 9, 520 + i * 17], opacity: [0, 1, 1, 0] }, { duration: seconds, times: [0, 0.28, 1], ease: ['easeOut', 'easeIn'], delay: (o.delay ?? 0.3) + (i % 7) * 0.012 });
     }
+  });
+}
+
+// ---------- icons ----------
+
+/** A brand logo from simple-icons (`import { siGithub } from 'simple-icons'`): one filled path on a 24 grid. */
+export interface BrandIcon {
+  title: string;
+  path: string;
+  hex: string;
+}
+/** An icon from lucide (`import { Check } from 'lucide'`): stroked shapes on a 24 grid. */
+export type LineIcon = readonly (readonly [string, Record<string, string | number | undefined>])[];
+
+export interface IconOptions extends Placed {
+  /** what it is called, for a screen reader; a logo says its own name */
+  alt?: string;
+  /** its colour. A logo is in its brand colour unless this says otherwise; an icon is in the theme's ink */
+  color?: string;
+  /** a line icon's stroke width (lucide's own is 2) */
+  weight?: number;
+  /** seconds before it arrives */
+  delay?: number;
+}
+
+/**
+ * A logo or an icon, as big as its box. A logo pops in on a spring; a line icon draws itself, stroke
+ * by stroke. Bring the icon from its own package, so only the icons a deck uses are in it:
+ *
+ *   import { siGithub } from 'simple-icons';  import { Check } from 'lucide';
+ *   icon(siGithub, { x: 100, y: 100, w: 96, h: 96 }), icon(Check, { ..., color: '#7ee2a8' })
+ */
+export function icon(source: BrandIcon | LineIcon, o: IconOptions): Draft {
+  const t = o.theme ?? dark;
+  const brand = !Array.isArray(source);
+  const alt = o.alt ?? (brand ? (source as BrandIcon).title : undefined);
+  return piece(o, alt, (root, { animate, width, height }) => {
+    const size = Math.min(width, height);
+    const delay = o.delay ?? 0.15;
+    const at = `position:absolute;left:${(width - size) / 2}px;top:${(height - size) / 2}px;width:${size}px;height:${size}px;overflow:visible`;
+    if (brand) {
+      const logo = source as BrandIcon;
+      root.innerHTML = `<svg viewBox="0 0 24 24" style="${at}"><path d="${logo.path}" fill="${o.color ?? `#${logo.hex}`}"/></svg>`;
+      animate('svg', { opacity: [0, 1], scale: [0.6, 1] }, { type: 'spring', stiffness: 260, damping: 16, delay });
+      return;
+    }
+    const attr = (attrs: Record<string, string | number | undefined>) =>
+      Object.entries(attrs)
+        .filter(([key, value]) => value !== undefined && key !== 'key')
+        .map(([key, value]) => `${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${escape(String(value))}"`)
+        .join(' ');
+    const shapes = (source as LineIcon).map(([tag, attrs]) => `<${tag} ${attr(attrs)} pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/>`).join('');
+    root.innerHTML = `<svg viewBox="0 0 24 24" style="${at}" fill="none" stroke="${o.color ?? t.ink}" stroke-width="${o.weight ?? 2}" stroke-linecap="round" stroke-linejoin="round">${shapes}</svg>`;
+    root.querySelectorAll('svg > *').forEach((shape, i) => animate(shape, { strokeDashoffset: [1, 0] }, { duration: 0.55, ease: OUT, delay: delay + i * 0.12 }));
+  });
+}
+
+// ---------- scribbles ----------
+
+export interface ScribbleOptions extends Placed {
+  color?: string;
+  /** how thick the pen is */
+  weight?: number;
+  /** how shaky the hand is: 0 is a ruler, 1 is rough.js's own, 2 and up is in a hurry */
+  roughness?: number;
+  /** the same number draws the same scribble every time, so a video is the same each time it is made */
+  seed?: number;
+  /** seconds before the pen starts */
+  delay?: number;
+  /** seconds the pen takes */
+  seconds?: number;
+}
+
+/**
+ * A mark drawn by hand over a slide, to point at something: a ring around it, a line under it, a box,
+ * an arrow across the box (left to right; turn it with `rotate`), a cross or a tick. It fills its box,
+ * so put the box over what it marks. Drawn with rough.js, and it draws itself in.
+ */
+export function scribble(kind: 'circle' | 'underline' | 'box' | 'arrow' | 'cross' | 'tick', o: ScribbleOptions): Draft {
+  const t = o.theme ?? dark;
+  return piece(o, undefined, (root, { animate, width, height }) => {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.style.cssText = `position:absolute;inset:0;width:${width}px;height:${height}px;overflow:visible;pointer-events:none`;
+    root.append(svg);
+    const pen = rough.svg(svg);
+    const look = { stroke: o.color ?? t.accent, strokeWidth: o.weight ?? 4, roughness: o.roughness ?? 1.4, seed: o.seed ?? 7, bowing: 1.2, disableMultiStroke: kind !== 'circle' && kind !== 'box' };
+    const s = look.strokeWidth;
+    const marks =
+      kind === 'circle'
+        ? [pen.ellipse(width / 2, height / 2, width - s * 2, height - s * 2, look)]
+        : kind === 'underline'
+          ? [pen.curve([[s, height * 0.55], [width * 0.5, height * 0.38], [width - s, height * 0.5]], look)]
+          : kind === 'box'
+            ? [pen.rectangle(s, s, width - s * 2, height - s * 2, look)]
+            : kind === 'arrow'
+              ? [pen.line(s, height / 2, width - s, height / 2, look), pen.linearPath([[width - Math.min(height, width) * 0.35, s], [width - s, height / 2], [width - Math.min(height, width) * 0.35, height - s]], look)]
+              : kind === 'cross'
+                ? [pen.line(s, s, width - s, height - s, look), pen.line(width - s, s, s, height - s, look)]
+                : [pen.linearPath([[s, height * 0.55], [width * 0.38, height - s], [width - s, s]], look)];
+    for (const mark of marks) svg.append(mark);
+    const strokes = [...svg.querySelectorAll('path')].filter((path) => path.getAttribute('stroke') !== 'none');
+    const delay = o.delay ?? 0.3;
+    const seconds = o.seconds ?? 0.7;
+    strokes.forEach((path, i) => {
+      path.setAttribute('pathLength', '1');
+      path.setAttribute('stroke-dasharray', '1');
+      path.setAttribute('stroke-dashoffset', '1');
+      animate(path, { strokeDashoffset: [1, 0] }, { duration: seconds / Math.max(1, strokes.length / 2), ease: 'easeInOut', delay: delay + (i * seconds) / strokes.length });
+    });
   });
 }
