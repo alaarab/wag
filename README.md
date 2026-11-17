@@ -60,7 +60,7 @@ npm test
 | Command | What it does |
 |---|---|
 | `wag new <name> --kind slides\|ad\|training\|walkthrough` | A new deck from a starter of that kind, in a look of its own, with narration. An ad takes `--format wide\|square\|tall` |
-| `wag check <deck>` | Plays every slide and step and says what does not fit: text bigger than its box, off the canvas, over other text, too faint to read, lines too long to follow. Writes `wag-check/<deck>/sheet.jpg`, every slide on one sheet. Ends with 1 on a problem |
+| `wag check <deck>` | Plays every slide and step and says what does not fit: text bigger than its box, words cut off inside a piece (a figure, a name, a window of code) or running out of its box, text off the canvas, over other text, too faint to read, lines too long to follow. Writes `wag-check/<deck>/sheet.jpg`, every slide on one sheet. Ends with 1 on a problem |
 | `wag make <deck>` | The narration audio, Word handouts and walk |
 | `wag video <deck>` | The deck as an mp4 |
 | `wag produce <deck>` | `make`, `check` and `video` in one go; a problem stops it (`--force` goes on) |
@@ -252,7 +252,7 @@ npm run video promo -- --out promo.mp4
 
 The browser's clock is held and moved on one frame at a time, so every spring, fade and motion piece is drawn whole and smooth however slow the machine. Options: `--fps` (30), `--size` (1080, the shorter side; `--height` sets the height instead), `--hold` (3 s), `--gap` after a line (1 s), `--lead` before a slide's line (0.5 s). It needs Chromium and `ffmpeg`.
 
-**Music and captions.** `--music track.mp3` lays a bed under it all: it loops if it is short, fades in and out, and dips while a line is heard so the voice stays clear (`--music-volume -12` in dB, `--no-duck` to keep it level). Use a track you may use. `--captions srt` writes the lines as subtitles next to the video, timed to the voice; `--captions burn` draws them into the picture as well. No speech recognition is needed: wag knows every word and when it is said.
+**Music and captions.** `--music track.mp3` lays a bed under it all: it loops if it is short, fades in and out, and dips while a line is heard so the voice stays clear (`--no-duck` to keep it level). The voice is brought to the same loudness in every video (-16 LUFS), whichever voice said it, and the bed sits 12 dB under it, whichever track it is: `--music-volume -18` puts it further back. `--no-music` leaves out a bed the deck asks for. Use a track you may use. `--captions srt` writes the lines as subtitles next to the video, timed to the voice; `--captions burn` draws them into the picture as well. No speech recognition is needed: wag knows every word and when it is said.
 
 ```sh
 npm run video promo -- --music bed.mp3 --captions burn

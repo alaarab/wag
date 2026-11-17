@@ -412,7 +412,7 @@ export interface VideoOptions {
   lead?: number;
   /** a music bed: a file under the deck's public folder, such as '/my-deck/bed.mp3' */
   music?: string;
-  /** how loud the bed is, in dB (-12) */
+  /** how far under the voice the bed sits, in dB (-12) */
   musicVolume?: number;
   /** let the bed dip while a line is heard (true) */
   duck?: boolean;

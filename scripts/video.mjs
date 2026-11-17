@@ -15,8 +15,9 @@
 //   --gap S        seconds after a line before moving on (default 1)
 //   --lead S       seconds between a slide arriving and its line starting (default 0.5)
 //   --music FILE   a music bed under it all, looped, faded, and dipping while a line is heard
-//   --music-volume DB  how loud the bed is (default -12)
+//   --music-volume DB  how far under the voice the bed sits (default -12)
 //   --no-duck      keep the bed level while lines are heard
+//   --no-music     leave out the bed the deck asks for
 //   --captions srt|burn  the lines as subtitles next to the video, or drawn into it as well
 //   --look WORD    for a deck made with fresh(seedOr(...)): play it in the look this word makes
 // WAG_BROWSER names the Chromium to use when none is found on the PATH.
@@ -26,7 +27,10 @@ import { parseArgs } from 'node:util';
 import { assemble } from './media/assemble.mjs';
 import { deckHomes, findDeck, openStage, plan } from './media/stage.mjs';
 
+// a figure below nothing after a flag (--music-volume -18) would be read as a flag of its own
+const given = process.argv.slice(2).reduce((all, word) => (/^-\d/.test(word) && /^--[a-z-]+$/.test(all.at(-1) ?? '') ? [...all.slice(0, -1), `${all.at(-1)}=${word}`] : [...all, word]), []);
 const { values: o, positionals } = parseArgs({
+  args: given,
   allowPositionals: true,
   options: {
     out: { type: 'string' },
@@ -39,6 +43,7 @@ const { values: o, positionals } = parseArgs({
     music: { type: 'string' },
     'music-volume': { type: 'string' },
     'no-duck': { type: 'boolean', default: false },
+    'no-music': { type: 'boolean', default: false },
     captions: { type: 'string' },
     look: { type: 'string' },
   },
@@ -71,7 +76,7 @@ try {
   }
   const { deck, wag, made } = stage;
   // a flag's music is a file from here; the deck's own is one of its public files
-  const musicFile = o.music ? resolve(here, o.music) : set.music ? join(where.pub, set.music) : null;
+  const musicFile = o['no-music'] ? null : o.music ? resolve(here, o.music) : set.music ? join(where.pub, set.music) : null;
   if (musicFile && !existsSync(musicFile)) throw new Error(`No music at ${musicFile}`);
   const music = musicFile ? { file: musicFile, volume: number(o['music-volume'], set.musicVolume, -12), duck: !o['no-duck'] && set.duck !== false } : undefined;
   const captions = o.captions ?? set.captions;

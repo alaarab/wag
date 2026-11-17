@@ -55,7 +55,15 @@ function outsideDecks(): Plugin {
 export default defineConfig({
   plugins: [outsideDecks()],
   // decks import 'wag' wherever they live, and the icon packages a deck may bring its icons from
-  resolve: { alias: { wag: join(here, 'src/index.ts'), lucide: join(here, 'node_modules/lucide'), 'simple-icons': join(here, 'node_modules/simple-icons') } },
+  // (simple-icons by its module file: as a folder, a deck played outside a browser, by `wag check` and
+  // `wag video`, was handed its CommonJS build and stopped with "module is not defined")
+  resolve: {
+    alias: [
+      { find: /^wag$/, replacement: join(here, 'src/index.ts') },
+      { find: /^lucide$/, replacement: join(here, 'node_modules/lucide') },
+      { find: /^simple-icons$/, replacement: join(here, 'node_modules/simple-icons/index.mjs') },
+    ],
+  },
   // fixed port so the links printed by `npm run new` are right
   // WAG_LIVE is where scripts/live.mjs listens, so a guided deck can drive a browser while it is being written
   // 127.0.0.1 and not "localhost", which on some machines is only the IPv6 address: the bridge and

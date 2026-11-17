@@ -15,9 +15,9 @@ npx wag check <name>                                       # 3. what does not fi
 npx wag produce <name> --out <name>.mp4                    # 5. voice, check again, video
 ```
 
-- `wag check` ends with 1 on a problem (text bigger than its box, a deck that throws) and lists
-  warnings (text off the canvas, text over text, text too close in colour to its ground, a line too
-  long to follow). Fix every problem and read every warning. Then open `sheet.jpg`: a clean report
+- `wag check` ends with 1 on a problem (text bigger than its box, words cut off inside a piece such
+  as a figure or a window of code, a deck that throws) and lists warnings (text off the canvas or out
+  of its piece's box, text over text, text too close in colour to its ground, a line too long to follow). Fix every problem and read every warning. Then open `sheet.jpg`: a clean report
   does not mean it looks good. Look for crowding, empty halves, weak hierarchy, and anything cut off.
 - `wag produce` runs `make` (audio), `check` and `video`. A problem stops it; `--force` goes on.
 - A deck outside this repo lives in a folder named by `WAG_DECKS` (its files in `$WAG_DECKS/public/`).
@@ -93,6 +93,8 @@ deck({ ...look(t), assets: '/my-deck', voice: 'kokoro', video: { captions: 'burn
   With no voice set up, the video is silent and timed as if read: say so, do not pretend it has sound.
 - `video`: `captions` (`'srt'` beside the video, `'burn'` drawn in), `music` (a file under
   `public/`, looped, faded, dipping under the voice), `hold`, `gap`, `lead`, `fps`, `size`.
+  Loudness is seen to: the voice comes out the same in every video and the bed sits 12 dB under it
+  (`musicVolume: -18` puts it further back).
   Only use music the owner has the right to use.
 - `format`: `'wide'` 1280x720, `'square'` 1080x1080, `'tall'` 720x1280. The video's shorter side is 1080.
 

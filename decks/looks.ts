@@ -8,13 +8,13 @@ const t = fresh(seedOr('wag'));
 const rise = arrive(t);
 const card = { ...panel(t), theme: t };
 const eyebrow = (content: string, y = 62) => text(content, { x: 80, y, w: 900, h: 22, font: t.mono, fontSize: 13, weight: 500, tracking: 0.18, caps: true, color: t.faint, enter: { opacity: 0, dy: 10 } });
-const heading = (content: string, y = 90, size = 56) => text(content, { ...headline(t), x: 80, y, w: 1100, h: size * 1.3, fontSize: size, leading: 1.02, reveal: 'words' });
+const heading = (content: string, y = 90, size = 56) => text(content, { ...headline(t), x: 80, y, w: 1100, h: size * (1.04 * content.split('\n').length + 0.2), fontSize: size, leading: 1.02, reveal: 'words' });
 
 const title = slide({ stagger: 0.06, narration: 'A look made from one word.' }, [
   aurora({ theme: t, strength: 0.9 }),
   eyebrow('A look made from one word', 190),
   heading('Every deck gets\na look of its *own.*', 222, 92),
-  text(t.name ?? '', { x: 84, y: 470, w: 900, h: 30, font: t.mono, fontSize: 15, color: t.dim, enter: { ...rise, delay: 0.9 } }),
+  text(t.name ?? '', { x: 84, y: 462, w: 900, h: 44, valign: 'bottom', font: t.mono, fontSize: 15, color: t.dim, enter: { ...rise, delay: 0.9 } }),
   box({ x: 84, y: 520, w: 260, h: 10, radius: 5, fill: t.gradient, enter: { opacity: 0, dx: -40, delay: 1.1 } }),
 ]);
 

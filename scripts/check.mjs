@@ -2,9 +2,10 @@
 // then writes a picture of every slide and one sheet of them all, so a deck can be looked at before
 // anyone else sees it. It looks for:
 //
-//   problems   text taller or wider than its box, a deck that fails to load or throws
-//   warnings   words that run off the canvas, text lying over other text, text too close in
-//              colour to what is behind it, a narration line too long to follow
+//   problems   text taller or wider than its box, words inside a piece (a figure, a name, a window
+//              of code) that are cut off, a deck that fails to load or throws
+//   warnings   words that run off the canvas or out of their piece's box, text lying over other
+//              text, text too close in colour to what is behind it, a narration line too long to follow
 //   notes      lines with no audio yet, slides that say nothing in a deck that talks
 //
 // It ends with 1 when there is a problem (with --strict, a warning too), so it can gate a video.
@@ -45,6 +46,66 @@ function inspect() {
   const words = (node) => node.textContent.replace(/\s+/g, ' ').trim();
   const short = (text) => (text.length > 46 ? `${text.slice(0, 44)}…` : text);
   const seen = [];
+  const styles = new Map();
+  const styleOf = (el) => styles.get(el) ?? styles.set(el, getComputedStyle(el)).get(el);
+  const hull = (a, b) => (a ? { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom });
+  const beyond = (ink, edge) => Math.max(edge.left - ink.left, ink.right - edge.right, edge.top - ink.top, ink.bottom - edge.bottom);
+  /**
+   * The words a piece has drawn inside itself, a block at a time: a figure, a name, a chart's label,
+   * a window of code. Each with where its ink is, and the edge that cuts it when something does.
+   */
+  const written = (scene) => {
+    const blocks = new Map();
+    const walker = document.createTreeWalker(scene, NodeFilter.SHOW_TEXT);
+    for (let words = walker.nextNode(); words; words = walker.nextNode()) {
+      if (!words.nodeValue.trim()) continue;
+      const parent = words.parentElement;
+      // words that pass by on purpose, a second copy for the eye only, and what an SVG keeps to itself
+      if (parent.closest('[data-moving], [aria-hidden="true"], defs, title, desc, style')) continue;
+      let shows = true;
+      for (let up = parent; up && up !== scene.parentElement && shows; up = up.parentElement) {
+        const style = styleOf(up);
+        shows = style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) >= 0.3;
+      }
+      if (!shows) continue;
+      const range = document.createRange();
+      range.selectNodeContents(words);
+      const ink = range.getBoundingClientRect();
+      if (ink.width < 1 || ink.height < 1) continue;
+      // a block: an SVG label by itself, otherwise the nearest thing that is not part of a line
+      let block = parent.closest('text');
+      if (!block) for (block = parent; block !== scene && styleOf(block).display === 'inline'; block = block.parentElement);
+      const entry = blocks.get(block) ?? { block, ink: null, text: '', size: parseFloat(styleOf(parent).fontSize) };
+      entry.ink = hull(entry.ink, ink);
+      entry.text += words.nodeValue;
+      blocks.set(block, entry);
+    }
+    return [...blocks.values()].map((entry) => {
+      // what cuts it: anything on the way up that hides what runs past its edge, and a gradient
+      // painted through the letters, which stops at the edge of what holds them
+      let cut = null;
+      for (let up = entry.block; up && up !== scene.parentElement; up = up.parentElement) {
+        const style = styleOf(up);
+        if (style.overflowX === 'visible' && style.overflowY === 'visible' && !(up === entry.block && style.backgroundClip === 'text')) continue;
+        const edge = up.getBoundingClientRect();
+        cut = cut ? { left: Math.max(cut.left, edge.left), top: Math.max(cut.top, edge.top), right: Math.min(cut.right, edge.right), bottom: Math.min(cut.bottom, edge.bottom) } : edge;
+      }
+      // what of it shows, for telling whether it lies over something else
+      const shown = cut ? { left: Math.max(cut.left, entry.ink.left), top: Math.max(cut.top, entry.ink.top), right: Math.min(cut.right, entry.ink.right), bottom: Math.min(cut.bottom, entry.ink.bottom) } : entry.ink;
+      // a block's own words, spaces and all (code is a letter to a span); a piece's loose words as they were found
+      const text = (entry.block === scene ? entry.text : entry.block.textContent).replace(/\s+/g, ' ').trim();
+      return { ...entry, text, cut, shown: { ...shown, width: Math.max(0, shown.right - shown.left), height: Math.max(0, shown.bottom - shown.top) } };
+    });
+  };
+  const lies = (ink, text, id, at, what, owner) => {
+    for (const other of seen) {
+      if (other.owner === owner) continue;
+      const w = Math.min(ink.right, other.ink.right) - Math.max(ink.left, other.ink.left);
+      const h = Math.min(ink.bottom, other.ink.bottom) - Math.max(ink.top, other.ink.top);
+      if (w > 2 && h > 2 && w * h > 0.15 * Math.min(ink.width * ink.height, other.ink.width * other.ink.height)) found.push({ level: 'warning', id, at, what: `${what} lies over "${short(other.text)}"` });
+    }
+    seen.push({ ink, text, owner });
+  };
   for (const node of nodes) {
     const style = getComputedStyle(node);
     const kind = node.dataset.kind;
@@ -58,6 +119,18 @@ function inspect() {
     // something bigger than the canvas is meant to bleed (a picture zoomed in on one part)
     const bleeds = box.width > frame.width + 6 || box.height > frame.height + 6;
     if (over > 6 && kind !== 'scene' && !bleeds) found.push({ level: 'warning', id: node.dataset.wag, at, what: `${what} runs ${Math.round(over)} px off the canvas` });
+    if (kind === 'scene') {
+      for (const piece of written(node)) {
+        const said = `"${short(piece.text)}"`;
+        const slack = Math.max(4, piece.size * 0.2);
+        const lost = piece.cut ? beyond(piece.ink, piece.cut) : 0;
+        const out = beyond(piece.ink, box);
+        if (lost > slack) found.push({ level: 'problem', id: node.dataset.wag, at, what: `${said} is cut off inside its piece: ${Math.round(lost)} px of it does not show. Give the piece a bigger box, or less to show` });
+        else if (out > Math.max(6, piece.size * 0.25)) found.push({ level: 'warning', id: node.dataset.wag, at, what: `${said} runs ${Math.round(out)} px out of its piece's box (${at.w} x ${at.h}): give the piece a bigger box or a smaller size, or it will sit over its neighbours` });
+        if (piece.shown.width > 1 && piece.shown.height > 1) lies(piece.shown, piece.text, node.dataset.wag, at, said, node);
+      }
+      continue;
+    }
     if (!text) continue;
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -70,12 +143,7 @@ function inspect() {
     else if (wide > Math.max(4, size * 0.2)) found.push({ level: 'problem', id: node.dataset.wag, at, what: `${what} is ${Math.round(wide)} px wider than its box (${at.w} px): give it more width or a smaller fontSize` });
     if (kind !== 'text') continue;
     // text over text
-    for (const other of seen) {
-      const w = Math.min(ink.right, other.ink.right) - Math.max(ink.left, other.ink.left);
-      const h = Math.min(ink.bottom, other.ink.bottom) - Math.max(ink.top, other.ink.top);
-      if (w > 2 && h > 2 && w * h > 0.15 * Math.min(ink.width * ink.height, other.ink.width * other.ink.height)) found.push({ level: 'warning', id: node.dataset.wag, at, what: `${what} lies over "${short(other.text)}"` });
-    }
-    seen.push({ ink, text });
+    lies(ink, text, node.dataset.wag, at, what, node);
     // text against what is behind it: the first thing under its middle that has a colour of its own
     const colour = rgba(style.color);
     if (!colour || colour[3] < 0.5 || style.backgroundClip === 'text' || node.querySelector('[style*="background-clip"]')) continue;

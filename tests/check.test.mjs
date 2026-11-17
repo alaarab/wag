@@ -52,4 +52,26 @@ export default deck({ ...look(t) }, [slide({ title: 'Broken' }, [
     assert.match(out, /warning .*"Too faint to read" is hard to read/);
     assert.match(out, /warning .*"Off the edge" runs 120 px off the canvas/);
   });
+
+  test('words inside a piece are looked at too: cut off is a problem, out of its box a warning, and words that pass by are left be', async () => {
+    const dir = scratch('check-pieces');
+    mkdirSync(join(dir, 'decks'));
+    writeFileSync(join(dir, 'decks/pieces.ts'), `import { code, dark, deck, look, slide, stat, ticker, wordmark } from 'wag';
+const t = dark;
+export default deck({ ...look(t) }, [slide({ title: 'Pieces' }, [
+  stat(1284567, { x: 80, y: 60, w: 170, h: 200, pad: 10, bright: true, label: 'Sold', theme: t }),
+  stat(42, { x: 300, y: 60, w: 300, h: 200, pad: 10, bright: true, label: 'Kept', theme: t }),
+  wordmark({ x: 80, y: 320, w: 200, h: 200, size: 190, theme: t, still: true }),
+  code('const line = "far too long to fit inside a window as narrow as this one is";', { x: 700, y: 60, w: 320, h: 160, theme: t, still: true }),
+  ticker(['Words', 'that', 'pass', 'by', 'and', 'run', 'past', 'the', 'edge'], { x: 0, y: 640, w: 1280, h: 44, theme: t }),
+])]);
+`);
+    const { code, out } = await run('check.mjs', ['pieces', '--out', join(dir, 'wag-check')], join(dir, 'decks'), dir);
+    assert.equal(code, 1, out);
+    assert.match(out, /problem .*"1,284,567" is cut off inside its piece/);
+    assert.match(out, /problem .*"const line = .*is cut off inside its piece/);
+    assert.match(out, /warning .*"wag" runs \d+ px out of its piece's box/);
+    assert.doesNotMatch(out, /"42"|"Kept"|"Sold"|Words/);
+    assert.match(out, /2 problems, 1 warning\./);
+  });
 });

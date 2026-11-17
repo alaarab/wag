@@ -501,6 +501,8 @@ export function ticker(items: string[], o: TickerOptions): Draft {
   return scene({ alt: items.join(' · '), ...o }, (root, { animate, height }) => {
     const size = o.size ?? height * 0.42;
     const row = items.map((item) => `<span style="display:inline-flex;align-items:center;gap:${size * 0.9}px;padding-right:${size * 0.9}px">${escape(item)}<i style="width:${size * 0.3}px;height:${size * 0.3}px;border-radius:50%;background-image:${t.gradient}"></i></span>`).join('');
+    // words that run past the edge on purpose: `wag check` leaves them be
+    root.dataset.moving = '';
     root.style.cssText += `;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)`;
     root.innerHTML = `<div class="row" style="display:flex;align-items:center;height:100%;width:max-content;font-family:${face(t.display)};font-weight:700;font-size:${size}px;letter-spacing:-.02em;color:${t.dim};white-space:nowrap"><div style="display:flex">${row}</div><div style="display:flex" aria-hidden="true">${row}</div></div>`;
     animate('.row', { x: ['0%', '-50%'] }, { duration: o.seconds ?? 24, ease: 'linear', repeat: Infinity });
